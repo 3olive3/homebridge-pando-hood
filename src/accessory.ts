@@ -454,9 +454,11 @@ export class PandoHoodAccessory {
     const active = value as number;
     this.platform.log.info("[%s] Set fan active: %d", this.thingId, active);
 
-    // Remember light state before turning on the hood — the hood firmware
-    // turns the light on at default brightness whenever device.onOff goes to 1.
+    // Remember light and timer state before turning on the hood — the hood
+    // firmware turns the light on at default brightness and sets timer.enable
+    // whenever device.onOff goes to 1.
     const lightWasOff = !this.state["device.lightOnOff"];
+    const timerWasOff = !this.state["device.timer.enable"];
 
     this.state["device.onOff"] = active;
 
@@ -489,6 +491,29 @@ export class PandoHoodAccessory {
           });
         }
       }, DEBOUNCE_MS + 1500);  // Fire well after the hood firmware processes fan-on and auto-lights
+    }
+
+    // Auto-timer suppression: the hood firmware sets timer.enable and/or
+    // timer.active when device.onOff goes to 1. If we don't counteract this,
+    // the next poll will push Timer=ON to HomeKit, triggering setTimerActive()
+    // which sends timer.enable:1 + timerValue:0 back to the API — a feedback
+    // loop identical to the auto-light bug.
+    if (active === 1 && timerWasOff) {
+      setTimeout(async () => {
+        // Re-check: only suppress if timer is still supposed to be off
+        // (user may have intentionally enabled the timer in the meantime).
+        if (!this.state["device.timer.enable"]) {
+          if (!this.online) {
+            this.platform.log.warn("[%s] Skipping auto-timer suppression (device offline)", this.thingId);
+            return;
+          }
+          this.platform.log.info("[%s] Suppressing auto-timer (was off before fan on)", this.thingId);
+          this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
+          await this.platform.client.sendCommand(this.thingId, {
+            "device.timer.enable": 0,
+          });
+        }
+      }, DEBOUNCE_MS + 1500);  // Same timing as auto-light — fire after firmware settles
     }
   }
 
@@ -604,10 +629,10 @@ export class PandoHoodAccessory {
   // ---- Timer handlers (Switch) --------------------------------------------
 
   private getTimerOn(): CharacteristicValue {
-    // On if either enabled or actively running.
+    // Only check "enable" — "active" is a firmware status flag that the hood
+    // sets automatically when the fan turns on, causing a false-positive.
     const enabled = this.state["device.timer.enable"] ?? 0;
-    const active = this.state["device.timer.active"] ?? 0;
-    return (enabled === 1 || active === 1);
+    return enabled === 1;
   }
 
   private async setTimerActive(value: CharacteristicValue): Promise<void> {
@@ -616,7 +641,9 @@ export class PandoHoodAccessory {
 
     if (on) {
       // When enabling, also send the duration to ensure the hood has a value.
-      const duration = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
+      // Use || (not ??) so that 0 also falls back to the default — the cloud
+      // API may report timerValue: 0 after a firmware-initiated timer state.
+      const duration = this.state["device.timerValue"] || DEFAULT_TIMER_DURATION;
       this.state["device.timer.enable"] = 1;
       this.state["device.timerValue"] = duration;
       this.debouncer.enqueue({
