@@ -2,6 +2,7 @@
   "pluginAlias": "PandoHood",
   "pluginType": "platform",
   "singular": true,
+  "pluginIcon": "https://raw.githubusercontent.com/3olive3/homebridge-pando-hood/main/logo.png",
   "headerDisplay": "Connect your Pando kitchen hood to HomeKit. You need a Pando account — the same email and password you use in the [Pando app](https://www.pando.es/tecnologia21/#airlink).",
   "footerDisplay": "All hoods linked to your Pando account will be discovered automatically.",
   "schema": {

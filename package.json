@@ -1,9 +1,12 @@
 {
   "name": "homebridge-pando-hood",
-  "version": "1.1.2",
+  "version": "1.1.3",
   "description": "Homebridge plugin for Pando kitchen hoods — exposes fan, light, filter maintenance, and clean air mode to Apple HomeKit via the PGA IoT cloud API.",
   "license": "MIT",
-  "author": "Filipe Lima",
+  "author": {
+    "name": "Filipe Lima",
+    "url": "https://github.com/3olive3"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/3olive3/homebridge-pando-hood.git"
