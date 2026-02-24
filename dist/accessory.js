@@ -175,10 +175,21 @@ class PandoHoodAccessory {
     async setFanActive(value) {
         const active = value;
         this.platform.log.info("[%s] Set fan active: %d", this.thingId, active);
+        // Remember light state before turning on the hood — the hood firmware
+        // turns the light on at default brightness whenever device.onOff goes to 1.
+        const lightWasOff = !this.state["device.lightOnOff"];
         this.state["device.onOff"] = active;
         await this.platform.client.sendCommand(this.thingId, {
             "device.onOff": active,
         });
+        // If we just turned on the hood and the light was off, tell the hood to
+        // turn the light back off so the fan doesn't drag the light along.
+        if (active === 1 && lightWasOff) {
+            this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
+            await this.platform.client.sendCommand(this.thingId, {
+                "device.lightOnOff": 0,
+            });
+        }
     }
     getFanSpeed() {
         return fanSpeedToPercent(this.state["device.fanSpeed"] ?? 0);
@@ -188,13 +199,25 @@ class PandoHoodAccessory {
         const speed = percentToFanSpeed(percent);
         this.platform.log.info("[%s] Set fan speed: %d%% -> level %d", this.thingId, percent, speed);
         this.state["device.fanSpeed"] = speed;
+        // Remember light state before turning on the hood — the hood firmware
+        // turns the light on at default brightness whenever device.onOff goes to 1.
+        const needsOnOff = speed > 0 && !this.state["device.onOff"];
+        const lightWasOff = !this.state["device.lightOnOff"];
         // If setting speed > 0, also turn on the hood.
         const commands = { "device.fanSpeed": speed };
-        if (speed > 0 && !this.state["device.onOff"]) {
+        if (needsOnOff) {
             commands["device.onOff"] = 1;
             this.state["device.onOff"] = 1;
         }
         await this.platform.client.sendCommand(this.thingId, commands);
+        // If we just turned on the hood and the light was off, suppress the
+        // hood's automatic light-on behavior.
+        if (needsOnOff && lightWasOff) {
+            this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
+            await this.platform.client.sendCommand(this.thingId, {
+                "device.lightOnOff": 0,
+            });
+        }
     }
     // ---- Light handlers ----------------------------------------------------
     getLightOn() {
