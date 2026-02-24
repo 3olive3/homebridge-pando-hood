@@ -110,6 +110,10 @@ class PandoHoodAccessory {
     infoService;
     // Last-known state (populated by polling)
     state = {};
+    // Last non-zero fan speed — used to restore speed when turning ON via HomeKit.
+    // This is kept separate because getFanSpeed() returns 0 when the hood is OFF
+    // (to give HomeKit a consistent Active=0 + Speed=0 pair and prevent snap-back).
+    lastFanSpeed = 1;
     // Command debouncer — coalesces rapid set handler calls into one API call.
     debouncer;
     // Cooldown: after sending a command, skip polling updates until this time.
@@ -119,6 +123,11 @@ class PandoHoodAccessory {
         this.accessory = accessory;
         this.thingId = thing.uid;
         this.state = { ...thing.capabilities };
+        // Seed lastFanSpeed from the device's current fan speed (if non-zero).
+        const initialSpeed = thing.capabilities["device.fanSpeed"] ?? 0;
+        if (initialSpeed > 0) {
+            this.lastFanSpeed = initialSpeed;
+        }
         // Create debouncer — coalesces rapid HomeKit changes into one API call.
         this.debouncer = new CommandDebouncer(DEBOUNCE_MS, async (params) => {
             this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
@@ -247,6 +256,11 @@ class PandoHoodAccessory {
             return;
         }
         this.state = { ...thing.capabilities };
+        // Keep lastFanSpeed in sync with polled data (e.g., speed changed via Pando app).
+        const polledSpeed = thing.capabilities["device.fanSpeed"] ?? 0;
+        if (polledSpeed > 0) {
+            this.lastFanSpeed = polledSpeed;
+        }
         this.pushStateToHomeKit();
     }
     /** Push current internal state to HomeKit characteristics. */
@@ -275,15 +289,14 @@ class PandoHoodAccessory {
         // turns the light on at default brightness whenever device.onOff goes to 1.
         const lightWasOff = !this.state["device.lightOnOff"];
         this.state["device.onOff"] = active;
-        // When turning ON, include the current fan speed so the hood starts at
-        // the right level. HomeKit fires Active and RotationSpeed setters in
-        // unpredictable order, so the debouncer coalesces them.
+        // When turning ON, include the last-used fan speed so the hood starts at
+        // the right level. We use lastFanSpeed because state["device.fanSpeed"]
+        // may be 0 (we clear it for HomeKit consistency when OFF).
         const commands = { "device.onOff": active };
         if (active === 1) {
-            const speed = this.state["device.fanSpeed"] ?? 0;
-            if (speed > 0) {
-                commands["device.fanSpeed"] = speed;
-            }
+            const speed = this.lastFanSpeed;
+            commands["device.fanSpeed"] = speed;
+            this.state["device.fanSpeed"] = speed;
         }
         this.debouncer.enqueue(commands);
         // Auto-light suppression: if turning on and light was off, schedule a
@@ -303,6 +316,12 @@ class PandoHoodAccessory {
         }
     }
     getFanSpeed() {
+        // When the hood is OFF, always report speed as 0 to HomeKit.
+        // This ensures HomeKit sees a consistent Active=0 + Speed=0 pair and
+        // does NOT "reconcile" by firing set handlers to turn the fan back on.
+        if (!this.state["device.onOff"]) {
+            return 0;
+        }
         return fanSpeedToPercent(this.state["device.fanSpeed"] ?? 0);
     }
     async setFanSpeed(value) {
@@ -311,6 +330,10 @@ class PandoHoodAccessory {
         this.platform.log.info("[%s] Set fan speed: %d%% -> level %d", this.thingId, percent, speed);
         // Always update local state so setFanActive() can read the latest speed.
         this.state["device.fanSpeed"] = speed;
+        // Track last non-zero speed for restoration when turning ON from OFF.
+        if (speed > 0) {
+            this.lastFanSpeed = speed;
+        }
         // Only send the speed command if the hood is already ON.
         // When the hood is OFF and HomeKit fires RotationSpeed (snap-back artifact
         // from toggling Active), we just update state silently — setFanActive()

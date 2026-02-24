@@ -133,6 +133,11 @@ export class PandoHoodAccessory {
   // Last-known state (populated by polling)
   private state: Record<string, number> = {};
 
+  // Last non-zero fan speed — used to restore speed when turning ON via HomeKit.
+  // This is kept separate because getFanSpeed() returns 0 when the hood is OFF
+  // (to give HomeKit a consistent Active=0 + Speed=0 pair and prevent snap-back).
+  private lastFanSpeed = 1;
+
   // Command debouncer — coalesces rapid set handler calls into one API call.
   private readonly debouncer: CommandDebouncer;
 
@@ -144,6 +149,12 @@ export class PandoHoodAccessory {
     this.accessory = accessory;
     this.thingId = thing.uid;
     this.state = { ...thing.capabilities };
+
+    // Seed lastFanSpeed from the device's current fan speed (if non-zero).
+    const initialSpeed = thing.capabilities["device.fanSpeed"] ?? 0;
+    if (initialSpeed > 0) {
+      this.lastFanSpeed = initialSpeed;
+    }
 
     // Create debouncer — coalesces rapid HomeKit changes into one API call.
     this.debouncer = new CommandDebouncer(DEBOUNCE_MS, async (params) => {
@@ -318,6 +329,13 @@ export class PandoHoodAccessory {
     }
 
     this.state = { ...thing.capabilities };
+
+    // Keep lastFanSpeed in sync with polled data (e.g., speed changed via Pando app).
+    const polledSpeed = thing.capabilities["device.fanSpeed"] ?? 0;
+    if (polledSpeed > 0) {
+      this.lastFanSpeed = polledSpeed;
+    }
+
     this.pushStateToHomeKit();
   }
 
@@ -388,15 +406,14 @@ export class PandoHoodAccessory {
 
     this.state["device.onOff"] = active;
 
-    // When turning ON, include the current fan speed so the hood starts at
-    // the right level. HomeKit fires Active and RotationSpeed setters in
-    // unpredictable order, so the debouncer coalesces them.
+    // When turning ON, include the last-used fan speed so the hood starts at
+    // the right level. We use lastFanSpeed because state["device.fanSpeed"]
+    // may be 0 (we clear it for HomeKit consistency when OFF).
     const commands: Record<string, number> = { "device.onOff": active };
     if (active === 1) {
-      const speed = this.state["device.fanSpeed"] ?? 0;
-      if (speed > 0) {
-        commands["device.fanSpeed"] = speed;
-      }
+      const speed = this.lastFanSpeed;
+      commands["device.fanSpeed"] = speed;
+      this.state["device.fanSpeed"] = speed;
     }
     this.debouncer.enqueue(commands);
 
@@ -418,6 +435,12 @@ export class PandoHoodAccessory {
   }
 
   private getFanSpeed(): CharacteristicValue {
+    // When the hood is OFF, always report speed as 0 to HomeKit.
+    // This ensures HomeKit sees a consistent Active=0 + Speed=0 pair and
+    // does NOT "reconcile" by firing set handlers to turn the fan back on.
+    if (!this.state["device.onOff"]) {
+      return 0;
+    }
     return fanSpeedToPercent(this.state["device.fanSpeed"] ?? 0);
   }
 
@@ -428,6 +451,11 @@ export class PandoHoodAccessory {
 
     // Always update local state so setFanActive() can read the latest speed.
     this.state["device.fanSpeed"] = speed;
+
+    // Track last non-zero speed for restoration when turning ON from OFF.
+    if (speed > 0) {
+      this.lastFanSpeed = speed;
+    }
 
     // Only send the speed command if the hood is already ON.
     // When the hood is OFF and HomeKit fires RotationSpeed (snap-back artifact
