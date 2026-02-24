@@ -17,6 +17,10 @@ export declare class PandoPlatform implements DynamicPlatformPlugin {
     private readonly activeAccessories;
     /** Polling interval handle. */
     private pollTimer?;
+    /** Consecutive polling failures — used for offline detection. */
+    private consecutiveFailures;
+    /** Number of consecutive poll failures before marking devices offline. */
+    private static readonly OFFLINE_THRESHOLD;
     constructor(log: Logger, config: PlatformConfig, api: API);
     /**
      * Called by Homebridge for each accessory restored from cache.

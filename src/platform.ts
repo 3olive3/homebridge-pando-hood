@@ -33,6 +33,12 @@ export class PandoPlatform implements DynamicPlatformPlugin {
   /** Polling interval handle. */
   private pollTimer?: ReturnType<typeof setInterval>;
 
+  /** Consecutive polling failures — used for offline detection. */
+  private consecutiveFailures = 0;
+
+  /** Number of consecutive poll failures before marking devices offline. */
+  private static readonly OFFLINE_THRESHOLD = 3;
+
   constructor(log: Logger, config: PlatformConfig, api: API) {
     this.log = log;
     this.config = config;
@@ -170,16 +176,42 @@ export class PandoPlatform implements DynamicPlatformPlugin {
         const things = await this.client.getThings();
         const thingMap = new Map(things.map((t) => [t.uid, t]));
 
+        // Poll succeeded — clear failure counter.
+        const wasOffline = this.consecutiveFailures >= PandoPlatform.OFFLINE_THRESHOLD;
+        this.consecutiveFailures = 0;
+
         for (const [thingId, handler] of this.activeAccessories) {
           const thing = thingMap.get(thingId);
           if (thing) {
+            // If recovering from offline, restore online status first.
+            if (wasOffline) {
+              this.log.info("Device %s is back online after %d+ failed polls.", thingId, PandoPlatform.OFFLINE_THRESHOLD);
+              handler.setOnline(true);
+            }
             handler.updateState(thing);
           } else {
             this.log.warn("Device %s not found in API response.", thingId);
           }
         }
       } catch (err) {
-        this.log.warn("Failed to poll devices: %s", err);
+        this.consecutiveFailures++;
+        this.log.warn(
+          "Failed to poll devices (attempt %d/%d): %s",
+          this.consecutiveFailures,
+          PandoPlatform.OFFLINE_THRESHOLD,
+          err,
+        );
+
+        // After threshold consecutive failures, mark all accessories as offline.
+        if (this.consecutiveFailures === PandoPlatform.OFFLINE_THRESHOLD) {
+          this.log.error(
+            "Cloud API unreachable after %d consecutive failures — marking all devices as offline.",
+            PandoPlatform.OFFLINE_THRESHOLD,
+          );
+          for (const [, handler] of this.activeAccessories) {
+            handler.setOnline(false);
+          }
+        }
       }
     }, intervalMs);
 

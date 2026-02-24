@@ -34,8 +34,16 @@ export declare class PandoHoodAccessory {
     private lastFanSpeed;
     private readonly debouncer;
     private commandCooldownUntil;
+    private online;
     constructor(platform: PandoPlatform, accessory: PlatformAccessory, thing: PgaThing);
     updateState(thing: PgaThing): void;
+    /**
+     * Set the online/offline status of this accessory.
+     * Called by the platform when consecutive poll failures cross the threshold.
+     * When offline: StatusFault = GENERAL_FAULT, commands are suppressed.
+     * When online:  StatusFault = NO_FAULT, normal operation resumes.
+     */
+    setOnline(online: boolean): void;
     /** Push current internal state to HomeKit characteristics. */
     private pushStateToHomeKit;
     private getFanActive;

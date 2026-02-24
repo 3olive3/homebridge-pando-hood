@@ -118,6 +118,9 @@ class PandoHoodAccessory {
     debouncer;
     // Cooldown: after sending a command, skip polling updates until this time.
     commandCooldownUntil = 0;
+    // Online status — set by the platform when consecutive poll failures exceed threshold.
+    // When offline, commands are suppressed and StatusFault is set on the fan service.
+    online = true;
     constructor(platform, accessory, thing) {
         this.platform = platform;
         this.accessory = accessory;
@@ -130,6 +133,11 @@ class PandoHoodAccessory {
         }
         // Create debouncer — coalesces rapid HomeKit changes into one API call.
         this.debouncer = new CommandDebouncer(DEBOUNCE_MS, async (params) => {
+            // Suppress commands when device is known to be offline.
+            if (!this.online) {
+                this.platform.log.warn("[%s] Suppressing command (device offline): %s", this.thingId, JSON.stringify(params));
+                return;
+            }
             this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
             this.platform.log.info("[%s] Sending debounced command: %s", this.thingId, JSON.stringify(params));
             await this.platform.client.sendCommand(this.thingId, params);
@@ -173,6 +181,11 @@ class PandoHoodAccessory {
             .setProps({ minValue: 0, maxValue: 100, minStep: 25 })
             .onGet(() => this.getFanSpeed())
             .onSet((value) => this.setFanSpeed(value));
+        // StatusFault — signals "Not Responding" in HomeKit when cloud API is unreachable.
+        this.fanService.getCharacteristic(Characteristic.StatusFault)
+            .onGet(() => this.online
+            ? Characteristic.StatusFault.NO_FAULT
+            : Characteristic.StatusFault.GENERAL_FAULT);
         // ---- Lightbulb ------------------------------------------------------
         this.lightService = accessory.getServiceById(Service.Lightbulb, "light")
             ?? accessory.addService(Service.Lightbulb, "Hood Light", "light");
@@ -263,12 +276,36 @@ class PandoHoodAccessory {
         }
         this.pushStateToHomeKit();
     }
+    /**
+     * Set the online/offline status of this accessory.
+     * Called by the platform when consecutive poll failures cross the threshold.
+     * When offline: StatusFault = GENERAL_FAULT, commands are suppressed.
+     * When online:  StatusFault = NO_FAULT, normal operation resumes.
+     */
+    setOnline(online) {
+        if (this.online === online) {
+            return; // No state change
+        }
+        this.online = online;
+        const Characteristic = this.platform.api.hap.Characteristic;
+        if (online) {
+            this.platform.log.info("[%s] Device is back online — clearing fault status.", this.thingId);
+            this.fanService.updateCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.NO_FAULT);
+        }
+        else {
+            this.platform.log.warn("[%s] Device marked offline — setting fault status.", this.thingId);
+            this.fanService.updateCharacteristic(Characteristic.StatusFault, Characteristic.StatusFault.GENERAL_FAULT);
+        }
+    }
     /** Push current internal state to HomeKit characteristics. */
     pushStateToHomeKit() {
         const Characteristic = this.platform.api.hap.Characteristic;
         // Push updated values to HomeKit so the Home app reflects real-time state.
         this.fanService.updateCharacteristic(Characteristic.Active, this.getFanActive());
         this.fanService.updateCharacteristic(Characteristic.RotationSpeed, this.getFanSpeed());
+        this.fanService.updateCharacteristic(Characteristic.StatusFault, this.online
+            ? Characteristic.StatusFault.NO_FAULT
+            : Characteristic.StatusFault.GENERAL_FAULT);
         this.lightService.updateCharacteristic(Characteristic.On, this.getLightOn());
         this.lightService.updateCharacteristic(Characteristic.Brightness, this.getLightBrightness());
         this.lightService.updateCharacteristic(Characteristic.ColorTemperature, this.getLightColorTemperature());
@@ -306,6 +343,10 @@ class PandoHoodAccessory {
             setTimeout(async () => {
                 // Re-check: only suppress if light is still supposed to be off
                 if (!this.state["device.lightOnOff"]) {
+                    if (!this.online) {
+                        this.platform.log.warn("[%s] Skipping auto-light suppression (device offline)", this.thingId);
+                        return;
+                    }
                     this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
                     this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
                     await this.platform.client.sendCommand(this.thingId, {
