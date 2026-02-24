@@ -105,8 +105,13 @@ export class PandoHoodAccessory {
 
     // ---- Fan (Fanv2) ----------------------------------------------------
 
-    this.fanService = accessory.getService(Service.Fanv2)
-      ?? accessory.addService(Service.Fanv2, "Hood Fan");
+    this.fanService = accessory.getServiceById(Service.Fanv2, "fan")
+      ?? accessory.addService(Service.Fanv2, "Hood Fan", "fan");
+
+    this.fanService.setCharacteristic(Characteristic.Name, "Hood Fan");
+    if (Characteristic.ConfiguredName) {
+      this.fanService.setCharacteristic(Characteristic.ConfiguredName, "Hood Fan");
+    }
 
     this.fanService.getCharacteristic(Characteristic.Active)
       .onGet(() => this.getFanActive())
@@ -119,8 +124,13 @@ export class PandoHoodAccessory {
 
     // ---- Lightbulb ------------------------------------------------------
 
-    this.lightService = accessory.getService(Service.Lightbulb)
-      ?? accessory.addService(Service.Lightbulb, "Hood Light");
+    this.lightService = accessory.getServiceById(Service.Lightbulb, "light")
+      ?? accessory.addService(Service.Lightbulb, "Hood Light", "light");
+
+    this.lightService.setCharacteristic(Characteristic.Name, "Hood Light");
+    if (Characteristic.ConfiguredName) {
+      this.lightService.setCharacteristic(Characteristic.ConfiguredName, "Hood Light");
+    }
 
     this.lightService.getCharacteristic(Characteristic.On)
       .onGet(() => this.getLightOn())
@@ -143,8 +153,10 @@ export class PandoHoodAccessory {
 
     // ---- Filter Maintenance ---------------------------------------------
 
-    this.filterService = accessory.getService(Service.FilterMaintenance)
-      ?? accessory.addService(Service.FilterMaintenance, "Filter");
+    this.filterService = accessory.getServiceById(Service.FilterMaintenance, "filter")
+      ?? accessory.addService(Service.FilterMaintenance, "Filter", "filter");
+
+    this.filterService.setCharacteristic(Characteristic.Name, "Filter");
 
     this.filterService.getCharacteristic(Characteristic.FilterChangeIndication)
       .onGet(() => this.getFilterChangeIndication());
@@ -157,6 +169,11 @@ export class PandoHoodAccessory {
     this.cleanAirService = accessory.getServiceById(Service.Switch, "clean-air")
       ?? accessory.addService(Service.Switch, "Clean Air", "clean-air");
 
+    this.cleanAirService.setCharacteristic(Characteristic.Name, "Clean Air");
+    if (Characteristic.ConfiguredName) {
+      this.cleanAirService.setCharacteristic(Characteristic.ConfiguredName, "Clean Air");
+    }
+
     this.cleanAirService.getCharacteristic(Characteristic.On)
       .onGet(() => this.getCleanAirEnabled())
       .onSet((value) => this.setCleanAirEnabled(value));
@@ -166,9 +183,22 @@ export class PandoHoodAccessory {
     this.timerService = accessory.getServiceById(Service.Switch, "timer")
       ?? accessory.addService(Service.Switch, "Timer", "timer");
 
+    this.timerService.setCharacteristic(Characteristic.Name, "Timer");
+    if (Characteristic.ConfiguredName) {
+      this.timerService.setCharacteristic(Characteristic.ConfiguredName, "Timer");
+    }
+
     this.timerService.getCharacteristic(Characteristic.On)
       .onGet(() => this.getTimerEnabled())
       .onSet((value) => this.setTimerEnabled(value));
+
+    // ---- Service linking -------------------------------------------------
+    // Mark fan as the primary service. Link the light to the fan so HomeKit
+    // knows they belong together and does not confuse which tile controls what.
+
+    this.fanService.setPrimaryService(true);
+    this.fanService.addLinkedService(this.lightService);
+    this.fanService.addLinkedService(this.filterService);
   }
 
   // ---- State update (called by platform polling) -------------------------
