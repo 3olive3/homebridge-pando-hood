@@ -5,11 +5,11 @@
  * Maps a single Pando kitchen hood to HomeKit services.
  *
  * Services exposed:
- *  - Fanv2           — hood fan on/off + speed (4 levels)
- *  - Lightbulb       — light on/off, brightness, color temperature
- *  - FilterMaintenance — filter life level + change indication
- *  - Switch (Clean Air)  — clean air periodic ventilation mode
- *  - Switch (Timer)      — hood timer on/off
+ *  - Fanv2              — hood fan on/off + speed (4 levels)
+ *  - Lightbulb          — light on/off, brightness, color temperature
+ *  - FilterMaintenance  — filter life level + change indication
+ *  - AirPurifier        — clean air periodic ventilation mode
+ *  - Valve (Generic)    — hood timer with duration countdown (1 min – 2 hr)
  *
  * The Pando app capabilities are fully replicated:
  *  - Fan:       device.onOff, device.fanSpeed (0-4)
@@ -50,6 +50,11 @@ function percentToFanSpeed(percent) {
     }
     return Math.min(4, Math.max(1, Math.round(percent / 25)));
 }
+// Default timer duration when enabling via HomeKit (15 minutes).
+const DEFAULT_TIMER_DURATION = 900;
+// Timer range (from Pando API metadata).
+const TIMER_MIN = 60; // 1 minute
+const TIMER_MAX = 7200; // 2 hours
 // ---------------------------------------------------------------------------
 // Accessory
 // ---------------------------------------------------------------------------
@@ -73,6 +78,19 @@ class PandoHoodAccessory {
         this.state = { ...thing.capabilities };
         const Characteristic = this.platform.api.hap.Characteristic;
         const Service = this.platform.api.hap.Service;
+        // ---- Migration: remove old Switch services from v1.0.0 ---------------
+        // v1.0.0 used Switch for Clean Air and Timer. v2 uses AirPurifier and
+        // Valve. Remove the stale cached services so they don't linger.
+        const oldCleanAirSwitch = accessory.getServiceById(Service.Switch, "clean-air");
+        if (oldCleanAirSwitch) {
+            platform.log.info("[%s] Removing old Switch (clean-air) — migrated to AirPurifier", thing.uid);
+            accessory.removeService(oldCleanAirSwitch);
+        }
+        const oldTimerSwitch = accessory.getServiceById(Service.Switch, "timer");
+        if (oldTimerSwitch) {
+            platform.log.info("[%s] Removing old Switch (timer) — migrated to Valve", thing.uid);
+            accessory.removeService(oldTimerSwitch);
+        }
         // ---- Accessory Information -------------------------------------------
         this.infoService = accessory.getService(Service.AccessoryInformation)
             ?? accessory.addService(Service.AccessoryInformation);
@@ -109,7 +127,7 @@ class PandoHoodAccessory {
             .setProps({ minValue: 10, maxValue: 100, minStep: 1 })
             .onGet(() => this.getLightBrightness())
             .onSet((value) => this.setLightBrightness(value));
-        // Color temperature: 2700K-6000K → mireds (167-370)
+        // Color temperature: 2700K-6000K -> mireds (167-370)
         this.lightService.getCharacteristic(Characteristic.ColorTemperature)
             .setProps({
             minValue: kelvinToMireds(6000), // ~167 mireds
@@ -126,29 +144,46 @@ class PandoHoodAccessory {
             .onGet(() => this.getFilterChangeIndication());
         this.filterService.getCharacteristic(Characteristic.FilterLifeLevel)
             .onGet(() => this.getFilterLifeLevel());
-        // ---- Clean Air Switch -----------------------------------------------
-        this.cleanAirService = accessory.getServiceById(Service.Switch, "clean-air")
-            ?? accessory.addService(Service.Switch, "Clean Air", "clean-air");
+        // ---- Clean Air (Air Purifier) ---------------------------------------
+        this.cleanAirService = accessory.getServiceById(Service.AirPurifier, "clean-air")
+            ?? accessory.addService(Service.AirPurifier, "Clean Air", "clean-air");
         this.cleanAirService.setCharacteristic(Characteristic.Name, "Clean Air");
         if (Characteristic.ConfiguredName) {
             this.cleanAirService.setCharacteristic(Characteristic.ConfiguredName, "Clean Air");
         }
-        this.cleanAirService.getCharacteristic(Characteristic.On)
-            .onGet(() => this.getCleanAirEnabled())
-            .onSet((value) => this.setCleanAirEnabled(value));
-        // ---- Timer Switch ---------------------------------------------------
-        this.timerService = accessory.getServiceById(Service.Switch, "timer")
-            ?? accessory.addService(Service.Switch, "Timer", "timer");
+        this.cleanAirService.getCharacteristic(Characteristic.Active)
+            .onGet(() => this.getCleanAirActive())
+            .onSet((value) => this.setCleanAirActive(value));
+        this.cleanAirService.getCharacteristic(Characteristic.CurrentAirPurifierState)
+            .onGet(() => this.getCleanAirCurrentState());
+        this.cleanAirService.getCharacteristic(Characteristic.TargetAirPurifierState)
+            .setProps({ validValues: [1] }) // Only "Auto" mode — Clean Air is always automatic
+            .onGet(() => 1) // Always return Auto
+            .onSet(() => { }); // No-op — can't change mode
+        // ---- Timer (Valve - Generic) ----------------------------------------
+        this.timerService = accessory.getServiceById(Service.Valve, "timer")
+            ?? accessory.addService(Service.Valve, "Timer", "timer");
         this.timerService.setCharacteristic(Characteristic.Name, "Timer");
         if (Characteristic.ConfiguredName) {
             this.timerService.setCharacteristic(Characteristic.ConfiguredName, "Timer");
         }
-        this.timerService.getCharacteristic(Characteristic.On)
-            .onGet(() => this.getTimerEnabled())
-            .onSet((value) => this.setTimerEnabled(value));
+        // ValveType 0 = Generic
+        this.timerService.setCharacteristic(Characteristic.ValveType, 0);
+        this.timerService.getCharacteristic(Characteristic.Active)
+            .onGet(() => this.getTimerActive())
+            .onSet((value) => this.setTimerActive(value));
+        this.timerService.getCharacteristic(Characteristic.InUse)
+            .onGet(() => this.getTimerInUse());
+        this.timerService.getCharacteristic(Characteristic.SetDuration)
+            .setProps({ minValue: TIMER_MIN, maxValue: TIMER_MAX, minStep: 60 })
+            .onGet(() => this.getTimerDuration())
+            .onSet((value) => this.setTimerDuration(value));
+        this.timerService.getCharacteristic(Characteristic.RemainingDuration)
+            .setProps({ minValue: 0, maxValue: TIMER_MAX })
+            .onGet(() => this.getTimerRemaining());
         // ---- Service linking -------------------------------------------------
-        // Mark fan as the primary service. Link the light to the fan so HomeKit
-        // knows they belong together and does not confuse which tile controls what.
+        // Mark fan as the primary service. Link the light and filter to the fan
+        // so HomeKit knows they belong together.
         this.fanService.setPrimaryService(true);
         this.fanService.addLinkedService(this.lightService);
         this.fanService.addLinkedService(this.filterService);
@@ -165,8 +200,11 @@ class PandoHoodAccessory {
         this.lightService.updateCharacteristic(Characteristic.ColorTemperature, this.getLightColorTemperature());
         this.filterService.updateCharacteristic(Characteristic.FilterChangeIndication, this.getFilterChangeIndication());
         this.filterService.updateCharacteristic(Characteristic.FilterLifeLevel, this.getFilterLifeLevel());
-        this.cleanAirService.updateCharacteristic(Characteristic.On, this.getCleanAirEnabled());
-        this.timerService.updateCharacteristic(Characteristic.On, this.getTimerEnabled());
+        this.cleanAirService.updateCharacteristic(Characteristic.Active, this.getCleanAirActive());
+        this.cleanAirService.updateCharacteristic(Characteristic.CurrentAirPurifierState, this.getCleanAirCurrentState());
+        this.timerService.updateCharacteristic(Characteristic.Active, this.getTimerActive());
+        this.timerService.updateCharacteristic(Characteristic.InUse, this.getTimerInUse());
+        this.timerService.updateCharacteristic(Characteristic.RemainingDuration, this.getTimerRemaining());
     }
     // ---- Fan handlers ------------------------------------------------------
     getFanActive() {
@@ -267,32 +305,75 @@ class PandoHoodAccessory {
         const max = 360000;
         return Math.round((remaining / max) * 100);
     }
-    // ---- Clean Air handler -------------------------------------------------
-    getCleanAirEnabled() {
-        return (this.state["device.cleanAirEnabled"] ?? 0) === 1;
+    // ---- Clean Air handlers (Air Purifier) ---------------------------------
+    getCleanAirActive() {
+        return (this.state["device.cleanAirEnabled"] ?? 0) === 1 ? 1 : 0;
     }
-    async setCleanAirEnabled(value) {
-        const enabled = value ? 1 : 0;
-        this.platform.log.info("[%s] Set clean air: %d", this.thingId, enabled);
-        this.state["device.cleanAirEnabled"] = enabled;
+    getCleanAirCurrentState() {
+        // 0 = Inactive, 1 = Idle, 2 = Purifying Air
+        const enabled = this.state["device.cleanAirEnabled"] ?? 0;
+        return enabled === 1 ? 2 : 0;
+    }
+    async setCleanAirActive(value) {
+        const active = value === 1 ? 1 : 0;
+        this.platform.log.info("[%s] Set clean air: %d", this.thingId, active);
+        this.state["device.cleanAirEnabled"] = active;
         await this.platform.client.sendCommand(this.thingId, {
-            "device.cleanAirEnabled": enabled,
+            "device.cleanAirEnabled": active,
         });
     }
-    // ---- Timer handler -----------------------------------------------------
-    getTimerEnabled() {
-        // Timer is "on" if either enabled or actively running.
+    // ---- Timer handlers (Valve) --------------------------------------------
+    getTimerActive() {
+        // Active if either enabled or actively running.
         const enabled = this.state["device.timer.enable"] ?? 0;
         const active = this.state["device.timer.active"] ?? 0;
-        return enabled === 1 || active === 1;
+        return (enabled === 1 || active === 1) ? 1 : 0;
     }
-    async setTimerEnabled(value) {
-        const enabled = value ? 1 : 0;
-        this.platform.log.info("[%s] Set timer: %d", this.thingId, enabled);
-        this.state["device.timer.enable"] = enabled;
+    getTimerInUse() {
+        // InUse = timer is actively counting down.
+        return (this.state["device.timer.active"] ?? 0) === 1 ? 1 : 0;
+    }
+    getTimerDuration() {
+        // Return the configured timer duration, clamped to valid range.
+        const value = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
+        return Math.max(TIMER_MIN, Math.min(TIMER_MAX, value));
+    }
+    getTimerRemaining() {
+        // When the timer is active, timerValue holds the remaining seconds.
+        // When inactive, return 0.
+        const active = this.state["device.timer.active"] ?? 0;
+        if (active !== 1) {
+            return 0;
+        }
+        return Math.max(0, Math.min(TIMER_MAX, this.state["device.timerValue"] ?? 0));
+    }
+    async setTimerDuration(value) {
+        const duration = Math.max(TIMER_MIN, Math.min(TIMER_MAX, value));
+        this.platform.log.info("[%s] Set timer duration: %ds", this.thingId, duration);
+        this.state["device.timerValue"] = duration;
         await this.platform.client.sendCommand(this.thingId, {
-            "device.timer.enable": enabled,
+            "device.timerValue": duration,
         });
+    }
+    async setTimerActive(value) {
+        const active = value === 1 ? 1 : 0;
+        this.platform.log.info("[%s] Set timer: %d", this.thingId, active);
+        if (active === 1) {
+            // When enabling, also send the duration to ensure the hood has a value.
+            const duration = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
+            this.state["device.timer.enable"] = 1;
+            this.state["device.timerValue"] = duration;
+            await this.platform.client.sendCommand(this.thingId, {
+                "device.timer.enable": 1,
+                "device.timerValue": duration,
+            });
+        }
+        else {
+            this.state["device.timer.enable"] = 0;
+            await this.platform.client.sendCommand(this.thingId, {
+                "device.timer.enable": 0,
+            });
+        }
     }
 }
 exports.PandoHoodAccessory = PandoHoodAccessory;

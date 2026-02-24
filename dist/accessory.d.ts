@@ -4,11 +4,11 @@
  * Maps a single Pando kitchen hood to HomeKit services.
  *
  * Services exposed:
- *  - Fanv2           — hood fan on/off + speed (4 levels)
- *  - Lightbulb       — light on/off, brightness, color temperature
- *  - FilterMaintenance — filter life level + change indication
- *  - Switch (Clean Air)  — clean air periodic ventilation mode
- *  - Switch (Timer)      — hood timer on/off
+ *  - Fanv2              — hood fan on/off + speed (4 levels)
+ *  - Lightbulb          — light on/off, brightness, color temperature
+ *  - FilterMaintenance  — filter life level + change indication
+ *  - AirPurifier        — clean air periodic ventilation mode
+ *  - Valve (Generic)    — hood timer with duration countdown (1 min – 2 hr)
  *
  * The Pando app capabilities are fully replicated:
  *  - Fan:       device.onOff, device.fanSpeed (0-4)
@@ -45,8 +45,13 @@ export declare class PandoHoodAccessory {
     private setLightColorTemperature;
     private getFilterChangeIndication;
     private getFilterLifeLevel;
-    private getCleanAirEnabled;
-    private setCleanAirEnabled;
-    private getTimerEnabled;
-    private setTimerEnabled;
+    private getCleanAirActive;
+    private getCleanAirCurrentState;
+    private setCleanAirActive;
+    private getTimerActive;
+    private getTimerInUse;
+    private getTimerDuration;
+    private getTimerRemaining;
+    private setTimerDuration;
+    private setTimerActive;
 }
