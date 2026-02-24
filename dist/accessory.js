@@ -353,7 +353,7 @@ class PandoHoodAccessory {
                         "device.lightOnOff": 0,
                     });
                 }
-            }, DEBOUNCE_MS + 200); // Fire after debounced command has been sent
+            }, DEBOUNCE_MS + 1500); // Fire well after the hood firmware processes fan-on and auto-lights
         }
     }
     getFanSpeed() {
