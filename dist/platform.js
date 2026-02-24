@@ -85,21 +85,32 @@ class PandoPlatform {
             discoveredUUIDs.add(uuid);
             const displayName = (0, api_client_1.getThingDisplayName)(thing);
             let accessory = this.cachedAccessories.get(uuid);
+            let isNew = false;
             if (accessory) {
-                // Existing accessory — update context and re-configure.
+                // Existing accessory — update context.
                 this.log.info("Restoring existing accessory: %s (%s)", displayName, thing.uid);
                 accessory.context.thing = thing;
-                this.api.updatePlatformAccessories([accessory]);
             }
             else {
-                // New accessory — register it.
+                // New accessory — create but do NOT register yet.
+                // Services must be added first so the cache includes them.
                 this.log.info("Adding new accessory: %s (%s)", displayName, thing.uid);
                 accessory = new this.api.platformAccessory(displayName, uuid);
                 accessory.context.thing = thing;
-                this.api.registerPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, [accessory]);
+                isNew = true;
             }
+            // Create the handler — this adds all services (Fanv2, Lightbulb,
+            // FilterMaintenance, 2x Switch) to the accessory.
             const handler = new accessory_1.PandoHoodAccessory(this, accessory, thing);
             this.activeAccessories.set(thing.uid, handler);
+            // Now register/update AFTER services exist so Homebridge serializes
+            // the full accessory (with all services) to the cache.
+            if (isNew) {
+                this.api.registerPlatformAccessories(settings_1.PLUGIN_NAME, settings_1.PLATFORM_NAME, [accessory]);
+            }
+            else {
+                this.api.updatePlatformAccessories([accessory]);
+            }
         }
         // Remove stale accessories that are no longer in the account.
         for (const [uuid, accessory] of this.cachedAccessories) {
