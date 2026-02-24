@@ -275,8 +275,17 @@ class PandoHoodAccessory {
         // turns the light on at default brightness whenever device.onOff goes to 1.
         const lightWasOff = !this.state["device.lightOnOff"];
         this.state["device.onOff"] = active;
-        // Use debouncer — coalesces with simultaneous setFanSpeed calls.
-        this.debouncer.enqueue({ "device.onOff": active });
+        // When turning ON, include the current fan speed so the hood starts at
+        // the right level. HomeKit fires Active and RotationSpeed setters in
+        // unpredictable order, so the debouncer coalesces them.
+        const commands = { "device.onOff": active };
+        if (active === 1) {
+            const speed = this.state["device.fanSpeed"] ?? 0;
+            if (speed > 0) {
+                commands["device.fanSpeed"] = speed;
+            }
+        }
+        this.debouncer.enqueue(commands);
         // Auto-light suppression: if turning on and light was off, schedule a
         // direct (non-debounced) follow-up command after the debounce window
         // fires, to turn the light back off.
@@ -300,31 +309,17 @@ class PandoHoodAccessory {
         const percent = value;
         const speed = percentToFanSpeed(percent);
         this.platform.log.info("[%s] Set fan speed: %d%% -> level %d", this.thingId, percent, speed);
+        // Always update local state so setFanActive() can read the latest speed.
         this.state["device.fanSpeed"] = speed;
-        // Remember light state before turning on the hood — the hood firmware
-        // turns the light on at default brightness whenever device.onOff goes to 1.
-        const needsOnOff = speed > 0 && !this.state["device.onOff"];
-        const lightWasOff = !this.state["device.lightOnOff"];
-        // If setting speed > 0, also turn on the hood.
-        const commands = { "device.fanSpeed": speed };
-        if (needsOnOff) {
-            commands["device.onOff"] = 1;
-            this.state["device.onOff"] = 1;
+        // Only send the speed command if the hood is already ON.
+        // When the hood is OFF and HomeKit fires RotationSpeed (snap-back artifact
+        // from toggling Active), we just update state silently — setFanActive()
+        // handles the actual turn-on and includes the speed in its command.
+        if (!this.state["device.onOff"]) {
+            this.platform.log.debug("[%s] Hood is off — storing speed %d without sending command", this.thingId, speed);
+            return;
         }
-        // Use debouncer — coalesces with simultaneous setFanActive calls.
-        this.debouncer.enqueue(commands);
-        // Auto-light suppression after debounced command fires.
-        if (needsOnOff && lightWasOff) {
-            setTimeout(async () => {
-                if (!this.state["device.lightOnOff"]) {
-                    this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
-                    this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
-                    await this.platform.client.sendCommand(this.thingId, {
-                        "device.lightOnOff": 0,
-                    });
-                }
-            }, DEBOUNCE_MS + 200);
-        }
+        this.debouncer.enqueue({ "device.fanSpeed": speed });
     }
     // ---- Light handlers ----------------------------------------------------
     getLightOn() {
