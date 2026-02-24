@@ -1,0 +1,26 @@
+# Compiled output
+dist/
+
+# Dependencies
+node_modules/
+
+# Environment
+.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# npm
+*.tgz
+package-lock.json
+
+# Logs
+*.log

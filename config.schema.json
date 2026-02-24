@@ -1,0 +1,62 @@
+{
+  "pluginAlias": "PandoHood",
+  "pluginType": "platform",
+  "singular": true,
+  "headerDisplay": "Connect your Pando kitchen hood to HomeKit. You need a Pando account — the same email and password you use in the [Pando app](https://www.pando.es/tecnologia21/#airlink).",
+  "footerDisplay": "All hoods linked to your Pando account will be discovered automatically.",
+  "schema": {
+    "type": "object",
+    "properties": {
+      "name": {
+        "title": "Plugin Name",
+        "type": "string",
+        "default": "Pando Hood",
+        "required": true
+      },
+      "username": {
+        "title": "Pando Account Email",
+        "type": "string",
+        "required": true,
+        "placeholder": "you@example.com",
+        "description": "The email address you use to log into the Pando app."
+      },
+      "password": {
+        "title": "Pando Account Password",
+        "type": "string",
+        "required": true,
+        "description": "Your Pando app password. Stored locally in the Homebridge config — never sent anywhere except the Pando API."
+      },
+      "pollingInterval": {
+        "title": "Polling Interval (seconds)",
+        "type": "integer",
+        "default": 30,
+        "minimum": 10,
+        "maximum": 300,
+        "description": "How often to poll the Pando cloud for state updates. Lower values give faster feedback but increase API traffic. Default: 30 seconds."
+      }
+    }
+  },
+  "form": null,
+  "display": null,
+  "layout": [
+    {
+      "type": "fieldset",
+      "title": "Pando Account",
+      "items": [
+        "username",
+        {
+          "key": "password",
+          "type": "password"
+        }
+      ]
+    },
+    {
+      "type": "fieldset",
+      "title": "Advanced",
+      "expandable": true,
+      "items": [
+        "pollingInterval"
+      ]
+    }
+  ]
+}
