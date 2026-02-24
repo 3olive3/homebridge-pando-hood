@@ -170,7 +170,7 @@ export class PgaApiClient {
     return data._embedded?.thingDTOList ?? [];
   }
 
-  /** Get a single device by its thing UID (e.g. "PAN-00004774"). */
+  /** Get a single device by its thing UID (e.g. "PAN-00001234"). */
   async getThing(thingId: string): Promise<PgaThing> {
     return await this.request<PgaThing>("GET", `/api/things/${thingId}`);
   }
@@ -178,7 +178,7 @@ export class PgaApiClient {
   /**
    * Send a command to a device.
    *
-   * @param thingId  Device UID (e.g. "PAN-00004774")
+   * @param thingId  Device UID (e.g. "PAN-00001234")
    * @param command  Capability key-value pairs (e.g. `{ "device.lightOnOff": 1 }`)
    */
   async sendCommand(thingId: string, command: Record<string, number>): Promise<void> {
