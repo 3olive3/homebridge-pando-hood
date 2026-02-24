@@ -165,12 +165,6 @@ export class PandoHoodAccessory {
       accessory.removeService(oldCleanAirSwitch);
     }
 
-    const oldTimerSwitch = accessory.getServiceById(Service.Switch, "timer");
-    if (oldTimerSwitch) {
-      platform.log.info("[%s] Removing old Switch (timer) — migrated to Valve", thing.uid);
-      accessory.removeService(oldTimerSwitch);
-    }
-
     // v2.0.0 used Valve for Timer — shows water tap icon in Apple Home.
     // v2.1.0 reverts to Switch for a correct icon.
     const oldTimerValve = accessory.getServiceById(Service.Valve, "timer");
@@ -298,6 +292,12 @@ export class PandoHoodAccessory {
     this.fanService.setPrimaryService(true);
     this.fanService.addLinkedService(this.lightService);
     this.fanService.addLinkedService(this.filterService);
+
+    // ---- Push initial state from API ------------------------------------
+    // The cached accessory may have stale characteristic values from before
+    // the last restart/pairing. Push the real API state immediately so
+    // HomeKit reflects the actual hood state from the start.
+    this.pushStateToHomeKit();
   }
 
   // ---- State update (called by platform polling) -------------------------
@@ -318,7 +318,11 @@ export class PandoHoodAccessory {
     }
 
     this.state = { ...thing.capabilities };
+    this.pushStateToHomeKit();
+  }
 
+  /** Push current internal state to HomeKit characteristics. */
+  private pushStateToHomeKit(): void {
     const Characteristic = this.platform.api.hap.Characteristic;
 
     // Push updated values to HomeKit so the Home app reflects real-time state.

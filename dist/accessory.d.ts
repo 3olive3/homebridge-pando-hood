@@ -35,6 +35,8 @@ export declare class PandoHoodAccessory {
     private commandCooldownUntil;
     constructor(platform: PandoPlatform, accessory: PlatformAccessory, thing: PgaThing);
     updateState(thing: PgaThing): void;
+    /** Push current internal state to HomeKit characteristics. */
+    private pushStateToHomeKit;
     private getFanActive;
     private setFanActive;
     private getFanSpeed;
