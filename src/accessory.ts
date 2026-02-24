@@ -25,7 +25,7 @@ import {
 } from "homebridge";
 
 import { PandoPlatform } from "./platform";
-import { PgaThing } from "./api-client";
+import { PgaThing, getThingDisplayName, getMetaProp } from "./api-client";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -97,11 +97,11 @@ export class PandoHoodAccessory {
 
     this.infoService
       .setCharacteristic(Characteristic.Manufacturer, "Pando")
-      .setCharacteristic(Characteristic.Model, thing.name || "Hood")
+      .setCharacteristic(Characteristic.Model, getThingDisplayName(thing))
       .setCharacteristic(Characteristic.SerialNumber, thing.uid)
-      .setCharacteristic(Characteristic.FirmwareRevision, String(
-        (thing.metadata?.firmwareVersion as string) ?? "1.0",
-      ));
+      .setCharacteristic(Characteristic.FirmwareRevision,
+        getMetaProp(thing, "property.device.fw.version") ?? "1.0",
+      );
 
     // ---- Fan (Fanv2) ----------------------------------------------------
 

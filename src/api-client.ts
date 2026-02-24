@@ -33,32 +33,82 @@ export interface PgaAuthResponse {
 
 export interface PgaCapabilityMeta {
   data_type: number;
-  min: number;
-  max: number;
-  default: number;
+  min_value: number;
+  max_value: number;
+  def_value: number;
+}
+
+export interface PgaPropertyMeta {
+  value: string;
 }
 
 export interface PgaThing {
   uid: string;
-  name: string;
-  type: string;
+  description: string;
+  enabled: boolean;
   online: boolean;
   lastMessage: string;
-  metadata: Record<string, PgaCapabilityMeta | string>;
+  created: string;
+  updated: string;
+  childrenUid: string[];
+  metadata: Record<string, PgaCapabilityMeta | PgaPropertyMeta | string>;
   capabilities: Record<string, number>;
   alarmEvents: unknown[];
 }
 
 export interface PgaThingsResponse {
-  _embedded: {
-    thingDTOList: PgaThing[];
-  };
-  page: {
-    size: number;
-    totalElements: number;
-    totalPages: number;
+  totalSize: number;
+  content: PgaThing[];
+  pageable: {
     number: number;
+    size: number;
+    sort: { orderBy: unknown[] };
   };
+  totalPages: number;
+  pageNumber: number;
+  numberOfElements: number;
+  empty: boolean;
+  size: number;
+  offset: number;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Type guard: is this metadata entry a property (has .value string)? */
+function isPropertyMeta(entry: PgaCapabilityMeta | PgaPropertyMeta | string): entry is PgaPropertyMeta {
+  return typeof entry === "object" && entry !== null && "value" in entry;
+}
+
+/**
+ * Extract a string property from a thing's metadata.
+ * Property entries use the format `{ value: "..." }` while capability entries
+ * use `{ data_type, min_value, max_value, def_value }`.
+ */
+export function getMetaProp(thing: PgaThing, key: string): string | undefined {
+  const entry = thing.metadata[key];
+  if (typeof entry === "string") {
+    return entry;
+  }
+  if (entry && isPropertyMeta(entry)) {
+    return entry.value;
+  }
+  return undefined;
+}
+
+/** Get the device display name from metadata, falling back to the thing UID. */
+export function getThingDisplayName(thing: PgaThing): string {
+  return getMetaProp(thing, "property.device_name") ?? thing.uid;
+}
+
+/** Get the device model identifier from metadata (e.g. "pga-hood-0"). */
+export function getThingModel(thing: PgaThing): string | undefined {
+  const model = thing.metadata["model"];
+  if (typeof model === "string") {
+    return model;
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,7 +217,7 @@ export class PgaApiClient {
   /** List all devices (things) associated with the authenticated user. */
   async getThings(): Promise<PgaThing[]> {
     const data = await this.request<PgaThingsResponse>("GET", "/api/things?page=0&size=100");
-    return data._embedded?.thingDTOList ?? [];
+    return data.content ?? [];
   }
 
   /** Get a single device by its thing UID (e.g. "PAN-00001234"). */

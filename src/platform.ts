@@ -15,7 +15,7 @@ import {
 } from "homebridge";
 
 import { PLATFORM_NAME, PLUGIN_NAME } from "./settings";
-import { PgaApiClient, PgaThing } from "./api-client";
+import { PgaApiClient, PgaThing, getThingDisplayName, getThingModel, getMetaProp } from "./api-client";
 import { PandoHoodAccessory } from "./accessory";
 
 export class PandoPlatform implements DynamicPlatformPlugin {
@@ -84,15 +84,14 @@ export class PandoPlatform implements DynamicPlatformPlugin {
       return;
     }
 
-    // Filter to hood-type devices only (type contains "hood").
+    // Filter to hood-type devices only.
     const hoods = things.filter((t) => {
-      const meta = t.metadata;
-      const deviceType = (meta?.deviceType as string) ?? "";
-      const modelId = (meta?.modelId as string) ?? "";
-      // Accept any thing that has fan/light capabilities — i.e., is a hood.
+      const model = getThingModel(t) ?? "";
+      const deviceType = getMetaProp(t, "property.device.type") ?? "";
+      // Accept any thing that looks like a hood — by model, device type, or capabilities.
       return (
+        model.toLowerCase().includes("hood") ||
         deviceType.toLowerCase().includes("hood") ||
-        modelId.toLowerCase().includes("hood") ||
         t.capabilities["device.fanSpeed"] !== undefined ||
         t.capabilities["device.onOff"] !== undefined
       );
@@ -113,7 +112,7 @@ export class PandoPlatform implements DynamicPlatformPlugin {
       const uuid = this.api.hap.uuid.generate(thing.uid);
       discoveredUUIDs.add(uuid);
 
-      const displayName = thing.name || thing.uid;
+      const displayName = getThingDisplayName(thing);
 
       let accessory = this.cachedAccessories.get(uuid);
       if (accessory) {
