@@ -153,13 +153,21 @@ export class PandoPlatform implements DynamicPlatformPlugin {
     this.log.info("Polling for state updates every %ds.", intervalMs / 1000);
 
     this.pollTimer = setInterval(async () => {
-      for (const [thingId, handler] of this.activeAccessories) {
-        try {
-          const thing = await this.client.getThing(thingId);
-          handler.updateState(thing);
-        } catch (err) {
-          this.log.warn("Failed to poll %s: %s", thingId, err);
+      try {
+        // Fetch all devices in one API call instead of per-device requests.
+        const things = await this.client.getThings();
+        const thingMap = new Map(things.map((t) => [t.uid, t]));
+
+        for (const [thingId, handler] of this.activeAccessories) {
+          const thing = thingMap.get(thingId);
+          if (thing) {
+            handler.updateState(thing);
+          } else {
+            this.log.warn("Device %s not found in API response.", thingId);
+          }
         }
+      } catch (err) {
+        this.log.warn("Failed to poll devices: %s", err);
       }
     }, intervalMs);
 

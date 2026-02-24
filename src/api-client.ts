@@ -8,7 +8,7 @@
  * Auth: POST /api/auth/login -> Bearer JWT (4-hour expiry)
  * Devices: GET /api/things
  * State: GET /api/things/{thingId}
- * Control: PUT /api/things/{thingId}/command
+ * Control: POST /devices/{uid}/set_value
  */
 
 import { Logger } from "homebridge";
@@ -226,12 +226,30 @@ export class PgaApiClient {
   }
 
   /**
-   * Send a command to a device.
+   * Send a command to a device via the confirmed REST endpoint.
+   *
+   * Callers pass a flat capability map (e.g. `{ "device.lightOnOff": 1 }`).
+   * Each key-value pair is sent as a separate parameter in the `DeviceCommand`
+   * payload expected by the PGA IoT backend.
+   *
+   * Endpoint: POST /devices/{uid}/set_value  (NOT /api/devices/...)
+   * Payload:  { command: "setValue", requestId: uuid, parameters: [{id, value}], deviceType: "smartphone" }
+   * Response: 200 with empty body on success.
    *
    * @param thingId  Device UID (e.g. "PAN-00001234")
    * @param command  Capability key-value pairs (e.g. `{ "device.lightOnOff": 1 }`)
    */
   async sendCommand(thingId: string, command: Record<string, number>): Promise<void> {
-    await this.request<void>("PUT", `/api/things/${thingId}/command`, command);
+    const parameters = Object.entries(command).map(([id, value]) => ({ id, value }));
+
+    const payload = {
+      command: "setValue",
+      requestId: crypto.randomUUID(),
+      parameters,
+      deviceType: "smartphone",
+    };
+
+    // Note: this endpoint lives at /devices/{uid}/set_value (no /api prefix).
+    await this.request<void>("POST", `/devices/${thingId}/set_value`, payload as unknown as Record<string, unknown>);
   }
 }
