@@ -8,7 +8,7 @@
  *  - Lightbulb          — light on/off, brightness, color temperature
  *  - FilterMaintenance  — filter life level + change indication
  *  - AirPurifier        — clean air periodic ventilation mode
- *  - Valve (Generic)    — hood timer with duration countdown (1 min – 2 hr)
+ *  - Switch             — hood timer on/off
  *
  * The Pando app capabilities are fully replicated:
  *  - Fan:       device.onOff, device.fanSpeed (0-4)
@@ -69,6 +69,51 @@ const TIMER_MIN = 60;    // 1 minute
 const TIMER_MAX = 7200;  // 2 hours
 
 // ---------------------------------------------------------------------------
+// Debounce helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Debounced command sender. Coalesces rapid characteristic changes (e.g.,
+ * HomeKit slider firing 0→25→50→75→100 within the same second) into a
+ * single API call with only the final values.
+ */
+class CommandDebouncer {
+  private pending: Record<string, number> = {};
+  private timer: ReturnType<typeof setTimeout> | null = null;
+  private readonly delayMs: number;
+  private readonly send: (params: Record<string, number>) => Promise<void>;
+
+  constructor(delayMs: number, send: (params: Record<string, number>) => Promise<void>) {
+    this.delayMs = delayMs;
+    this.send = send;
+  }
+
+  /** Queue parameters to be sent. Values for the same key are overwritten. */
+  enqueue(params: Record<string, number>): void {
+    Object.assign(this.pending, params);
+    if (this.timer) {
+      clearTimeout(this.timer);
+    }
+    this.timer = setTimeout(() => this.flush(), this.delayMs);
+  }
+
+  private async flush(): Promise<void> {
+    this.timer = null;
+    const params = { ...this.pending };
+    this.pending = {};
+    if (Object.keys(params).length === 0) {
+      return;
+    }
+    await this.send(params);
+  }
+}
+
+// Debounce window: 500ms — coalesces rapid HomeKit slider changes.
+const DEBOUNCE_MS = 500;
+// After a command is sent, ignore polling updates for this many ms.
+const COMMAND_COOLDOWN_MS = 3000;
+
+// ---------------------------------------------------------------------------
 // Accessory
 // ---------------------------------------------------------------------------
 
@@ -88,11 +133,24 @@ export class PandoHoodAccessory {
   // Last-known state (populated by polling)
   private state: Record<string, number> = {};
 
+  // Command debouncer — coalesces rapid set handler calls into one API call.
+  private readonly debouncer: CommandDebouncer;
+
+  // Cooldown: after sending a command, skip polling updates until this time.
+  private commandCooldownUntil = 0;
+
   constructor(platform: PandoPlatform, accessory: PlatformAccessory, thing: PgaThing) {
     this.platform = platform;
     this.accessory = accessory;
     this.thingId = thing.uid;
     this.state = { ...thing.capabilities };
+
+    // Create debouncer — coalesces rapid HomeKit changes into one API call.
+    this.debouncer = new CommandDebouncer(DEBOUNCE_MS, async (params) => {
+      this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
+      this.platform.log.info("[%s] Sending debounced command: %s", this.thingId, JSON.stringify(params));
+      await this.platform.client.sendCommand(this.thingId, params);
+    });
 
     const Characteristic = this.platform.api.hap.Characteristic;
     const Service = this.platform.api.hap.Service;
@@ -111,6 +169,14 @@ export class PandoHoodAccessory {
     if (oldTimerSwitch) {
       platform.log.info("[%s] Removing old Switch (timer) — migrated to Valve", thing.uid);
       accessory.removeService(oldTimerSwitch);
+    }
+
+    // v2.0.0 used Valve for Timer — shows water tap icon in Apple Home.
+    // v2.1.0 reverts to Switch for a correct icon.
+    const oldTimerValve = accessory.getServiceById(Service.Valve, "timer");
+    if (oldTimerValve) {
+      platform.log.info("[%s] Removing old Valve (timer) — reverted to Switch", thing.uid);
+      accessory.removeService(oldTimerValve);
     }
 
     // ---- Accessory Information -------------------------------------------
@@ -210,34 +276,20 @@ export class PandoHoodAccessory {
       .onGet(() => 1)                  // Always return Auto
       .onSet(() => {});                // No-op — can't change mode
 
-    // ---- Timer (Valve - Generic) ----------------------------------------
+    // ---- Timer (Switch) ---------------------------------------------------
+    // Using Switch instead of Valve to avoid Apple Home's water tap icon.
 
-    this.timerService = accessory.getServiceById(Service.Valve, "timer")
-      ?? accessory.addService(Service.Valve, "Timer", "timer");
+    this.timerService = accessory.getServiceById(Service.Switch, "timer")
+      ?? accessory.addService(Service.Switch, "Timer", "timer");
 
     this.timerService.setCharacteristic(Characteristic.Name, "Timer");
     if (Characteristic.ConfiguredName) {
       this.timerService.setCharacteristic(Characteristic.ConfiguredName, "Timer");
     }
 
-    // ValveType 0 = Generic
-    this.timerService.setCharacteristic(Characteristic.ValveType, 0);
-
-    this.timerService.getCharacteristic(Characteristic.Active)
-      .onGet(() => this.getTimerActive())
+    this.timerService.getCharacteristic(Characteristic.On)
+      .onGet(() => this.getTimerOn())
       .onSet((value) => this.setTimerActive(value));
-
-    this.timerService.getCharacteristic(Characteristic.InUse)
-      .onGet(() => this.getTimerInUse());
-
-    this.timerService.getCharacteristic(Characteristic.SetDuration)
-      .setProps({ minValue: TIMER_MIN, maxValue: TIMER_MAX, minStep: 60 })
-      .onGet(() => this.getTimerDuration())
-      .onSet((value) => this.setTimerDuration(value));
-
-    this.timerService.getCharacteristic(Characteristic.RemainingDuration)
-      .setProps({ minValue: 0, maxValue: TIMER_MAX })
-      .onGet(() => this.getTimerRemaining());
 
     // ---- Service linking -------------------------------------------------
     // Mark fan as the primary service. Link the light and filter to the fan
@@ -251,6 +303,20 @@ export class PandoHoodAccessory {
   // ---- State update (called by platform polling) -------------------------
 
   updateState(thing: PgaThing): void {
+    // Command cooldown: skip pushing values to HomeKit if we recently sent
+    // a command. This prevents the polling loop from overwriting the user's
+    // intended state with stale cloud data before the device settles.
+    if (Date.now() < this.commandCooldownUntil) {
+      this.platform.log.debug(
+        "[%s] Skipping poll update — command cooldown active (%dms remaining)",
+        this.thingId,
+        this.commandCooldownUntil - Date.now(),
+      );
+      // Still update internal state so getters return fresh data on next read.
+      this.state = { ...thing.capabilities };
+      return;
+    }
+
     this.state = { ...thing.capabilities };
 
     const Characteristic = this.platform.api.hap.Characteristic;
@@ -297,16 +363,8 @@ export class PandoHoodAccessory {
     );
 
     this.timerService.updateCharacteristic(
-      Characteristic.Active,
-      this.getTimerActive(),
-    );
-    this.timerService.updateCharacteristic(
-      Characteristic.InUse,
-      this.getTimerInUse(),
-    );
-    this.timerService.updateCharacteristic(
-      Characteristic.RemainingDuration,
-      this.getTimerRemaining(),
+      Characteristic.On,
+      this.getTimerOn(),
     );
   }
 
@@ -325,17 +383,24 @@ export class PandoHoodAccessory {
     const lightWasOff = !this.state["device.lightOnOff"];
 
     this.state["device.onOff"] = active;
-    await this.platform.client.sendCommand(this.thingId, {
-      "device.onOff": active,
-    });
 
-    // If we just turned on the hood and the light was off, tell the hood to
-    // turn the light back off so the fan doesn't drag the light along.
+    // Use debouncer — coalesces with simultaneous setFanSpeed calls.
+    this.debouncer.enqueue({ "device.onOff": active });
+
+    // Auto-light suppression: if turning on and light was off, schedule a
+    // direct (non-debounced) follow-up command after the debounce window
+    // fires, to turn the light back off.
     if (active === 1 && lightWasOff) {
-      this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
-      await this.platform.client.sendCommand(this.thingId, {
-        "device.lightOnOff": 0,
-      });
+      setTimeout(async () => {
+        // Re-check: only suppress if light is still supposed to be off
+        if (!this.state["device.lightOnOff"]) {
+          this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
+          this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
+          await this.platform.client.sendCommand(this.thingId, {
+            "device.lightOnOff": 0,
+          });
+        }
+      }, DEBOUNCE_MS + 200);  // Fire after debounced command has been sent
     }
   }
 
@@ -362,15 +427,20 @@ export class PandoHoodAccessory {
       this.state["device.onOff"] = 1;
     }
 
-    await this.platform.client.sendCommand(this.thingId, commands);
+    // Use debouncer — coalesces with simultaneous setFanActive calls.
+    this.debouncer.enqueue(commands);
 
-    // If we just turned on the hood and the light was off, suppress the
-    // hood's automatic light-on behavior.
+    // Auto-light suppression after debounced command fires.
     if (needsOnOff && lightWasOff) {
-      this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
-      await this.platform.client.sendCommand(this.thingId, {
-        "device.lightOnOff": 0,
-      });
+      setTimeout(async () => {
+        if (!this.state["device.lightOnOff"]) {
+          this.platform.log.info("[%s] Suppressing auto-light (was off before fan on)", this.thingId);
+          this.commandCooldownUntil = Date.now() + COMMAND_COOLDOWN_MS;
+          await this.platform.client.sendCommand(this.thingId, {
+            "device.lightOnOff": 0,
+          });
+        }
+      }, DEBOUNCE_MS + 200);
     }
   }
 
@@ -384,9 +454,7 @@ export class PandoHoodAccessory {
     const on = value ? 1 : 0;
     this.platform.log.info("[%s] Set light on: %d", this.thingId, on);
     this.state["device.lightOnOff"] = on;
-    await this.platform.client.sendCommand(this.thingId, {
-      "device.lightOnOff": on,
-    });
+    this.debouncer.enqueue({ "device.lightOnOff": on });
   }
 
   private getLightBrightness(): CharacteristicValue {
@@ -398,9 +466,7 @@ export class PandoHoodAccessory {
     const brightness = Math.max(10, Math.min(100, value as number));
     this.platform.log.info("[%s] Set light brightness: %d%%", this.thingId, brightness);
     this.state["device.lightBrightness"] = brightness;
-    await this.platform.client.sendCommand(this.thingId, {
-      "device.lightBrightness": brightness,
-    });
+    this.debouncer.enqueue({ "device.lightBrightness": brightness });
   }
 
   private getLightColorTemperature(): CharacteristicValue {
@@ -415,9 +481,7 @@ export class PandoHoodAccessory {
     const kelvin = Math.max(2700, Math.min(6000, miredsToKelvin(mireds)));
     this.platform.log.info("[%s] Set light color temperature: %d mireds -> %dK", this.thingId, mireds, kelvin);
     this.state["device.lightColorTemperature"] = kelvin;
-    await this.platform.client.sendCommand(this.thingId, {
-      "device.lightColorTemperature": kelvin,
-    });
+    this.debouncer.enqueue({ "device.lightColorTemperature": kelvin });
   }
 
   // ---- Filter handlers ---------------------------------------------------
@@ -451,69 +515,34 @@ export class PandoHoodAccessory {
     const active = (value as number) === 1 ? 1 : 0;
     this.platform.log.info("[%s] Set clean air: %d", this.thingId, active);
     this.state["device.cleanAirEnabled"] = active;
-    await this.platform.client.sendCommand(this.thingId, {
-      "device.cleanAirEnabled": active,
-    });
+    this.debouncer.enqueue({ "device.cleanAirEnabled": active });
   }
 
-  // ---- Timer handlers (Valve) --------------------------------------------
+  // ---- Timer handlers (Switch) --------------------------------------------
 
-  private getTimerActive(): CharacteristicValue {
-    // Active if either enabled or actively running.
+  private getTimerOn(): CharacteristicValue {
+    // On if either enabled or actively running.
     const enabled = this.state["device.timer.enable"] ?? 0;
     const active = this.state["device.timer.active"] ?? 0;
-    return (enabled === 1 || active === 1) ? 1 : 0;
-  }
-
-  private getTimerInUse(): CharacteristicValue {
-    // InUse = timer is actively counting down.
-    return (this.state["device.timer.active"] ?? 0) === 1 ? 1 : 0;
-  }
-
-  private getTimerDuration(): CharacteristicValue {
-    // Return the configured timer duration, clamped to valid range.
-    // When inactive the hood reports 0 — clamp to TIMER_MIN (minValue).
-    const value = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
-    return Math.max(TIMER_MIN, Math.min(TIMER_MAX, value || DEFAULT_TIMER_DURATION));
-  }
-
-  private getTimerRemaining(): CharacteristicValue {
-    // When the timer is active, timerValue holds the remaining seconds.
-    // When inactive, return 0.
-    const active = this.state["device.timer.active"] ?? 0;
-    if (active !== 1) {
-      return 0;
-    }
-    return Math.max(0, Math.min(TIMER_MAX, this.state["device.timerValue"] ?? 0));
-  }
-
-  private async setTimerDuration(value: CharacteristicValue): Promise<void> {
-    const duration = Math.max(TIMER_MIN, Math.min(TIMER_MAX, value as number));
-    this.platform.log.info("[%s] Set timer duration: %ds", this.thingId, duration);
-    this.state["device.timerValue"] = duration;
-    await this.platform.client.sendCommand(this.thingId, {
-      "device.timerValue": duration,
-    });
+    return (enabled === 1 || active === 1);
   }
 
   private async setTimerActive(value: CharacteristicValue): Promise<void> {
-    const active = (value as number) === 1 ? 1 : 0;
-    this.platform.log.info("[%s] Set timer: %d", this.thingId, active);
+    const on = value ? 1 : 0;
+    this.platform.log.info("[%s] Set timer: %s", this.thingId, on ? "ON" : "OFF");
 
-    if (active === 1) {
+    if (on) {
       // When enabling, also send the duration to ensure the hood has a value.
       const duration = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
       this.state["device.timer.enable"] = 1;
       this.state["device.timerValue"] = duration;
-      await this.platform.client.sendCommand(this.thingId, {
+      this.debouncer.enqueue({
         "device.timer.enable": 1,
         "device.timerValue": duration,
       });
     } else {
       this.state["device.timer.enable"] = 0;
-      await this.platform.client.sendCommand(this.thingId, {
-        "device.timer.enable": 0,
-      });
+      this.debouncer.enqueue({ "device.timer.enable": 0 });
     }
   }
 }

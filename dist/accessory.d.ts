@@ -8,7 +8,7 @@
  *  - Lightbulb          — light on/off, brightness, color temperature
  *  - FilterMaintenance  — filter life level + change indication
  *  - AirPurifier        — clean air periodic ventilation mode
- *  - Valve (Generic)    — hood timer with duration countdown (1 min – 2 hr)
+ *  - Switch             — hood timer on/off
  *
  * The Pando app capabilities are fully replicated:
  *  - Fan:       device.onOff, device.fanSpeed (0-4)
@@ -31,6 +31,8 @@ export declare class PandoHoodAccessory {
     private readonly timerService;
     private readonly infoService;
     private state;
+    private readonly debouncer;
+    private commandCooldownUntil;
     constructor(platform: PandoPlatform, accessory: PlatformAccessory, thing: PgaThing);
     updateState(thing: PgaThing): void;
     private getFanActive;
@@ -48,10 +50,6 @@ export declare class PandoHoodAccessory {
     private getCleanAirActive;
     private getCleanAirCurrentState;
     private setCleanAirActive;
-    private getTimerActive;
-    private getTimerInUse;
-    private getTimerDuration;
-    private getTimerRemaining;
-    private setTimerDuration;
+    private getTimerOn;
     private setTimerActive;
 }
