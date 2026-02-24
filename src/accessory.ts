@@ -478,9 +478,12 @@ export class PandoHoodAccessory {
 
     // When turning OFF, clear auto-suppression flags — the session is over.
     // On the next fan-on, fresh flags will be set based on current state.
+    // Also force timer state to 0 so HomeKit doesn't see a stale timer.enable:1
+    // from the cloud and fire a spurious setTimerActive(OFF) during shutdown.
     if (active === 0) {
       this.suppressAutoLight = false;
       this.suppressAutoTimer = false;
+      this.state["device.timer.enable"] = 0;
     }
 
     // When turning ON, include the last-used fan speed so the hood starts at
