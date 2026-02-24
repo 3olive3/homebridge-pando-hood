@@ -144,6 +144,15 @@ export class PandoHoodAccessory {
   // Cooldown: after sending a command, skip polling updates until this time.
   private commandCooldownUntil = 0;
 
+  // Auto-suppression intent flags. Set when the fan turns on and the light/timer
+  // was off beforehand. The pending setTimeout checks these flags (not this.state)
+  // to decide whether to fire the suppression command — because this.state gets
+  // overwritten by polling during the command cooldown window, which would falsely
+  // cancel the suppression. Cleared after suppression fires, or when the user
+  // explicitly enables the light/timer via HomeKit (cancelling the suppression).
+  private suppressAutoLight = false;
+  private suppressAutoTimer = false;
+
   // Online status — set by the platform when consecutive poll failures exceed threshold.
   // When offline, commands are suppressed and StatusFault is set on the fan service.
   private online = true;
@@ -458,9 +467,21 @@ export class PandoHoodAccessory {
     // firmware turns the light on at default brightness and sets timer.enable
     // whenever device.onOff goes to 1.
     const lightWasOff = !this.state["device.lightOnOff"];
-    const timerWasOff = !this.state["device.timer.enable"];
+    // The cloud API may persist timer.enable: 1 even after the hood is turned
+    // off (stale state from the last run). When the fan is currently OFF, the
+    // timer is logically off regardless of what the cloud reports — so always
+    // treat it as "was off" to ensure suppression fires on the next fan-on.
+    const fanIsCurrentlyOff = !this.state["device.onOff"];
+    const timerWasOff = fanIsCurrentlyOff || !this.state["device.timer.enable"];
 
     this.state["device.onOff"] = active;
+
+    // When turning OFF, clear auto-suppression flags — the session is over.
+    // On the next fan-on, fresh flags will be set based on current state.
+    if (active === 0) {
+      this.suppressAutoLight = false;
+      this.suppressAutoTimer = false;
+    }
 
     // When turning ON, include the last-used fan speed so the hood starts at
     // the right level. We use lastFanSpeed because state["device.fanSpeed"]
@@ -477,9 +498,12 @@ export class PandoHoodAccessory {
     // direct (non-debounced) follow-up command after the debounce window
     // fires, to turn the light back off.
     if (active === 1 && lightWasOff) {
+      this.suppressAutoLight = true;
       setTimeout(async () => {
-        // Re-check: only suppress if light is still supposed to be off
-        if (!this.state["device.lightOnOff"]) {
+        // Only suppress if the flag is still set — it gets cleared if the
+        // user explicitly turns the light ON via HomeKit before this fires.
+        if (this.suppressAutoLight) {
+          this.suppressAutoLight = false;
           if (!this.online) {
             this.platform.log.warn("[%s] Skipping auto-light suppression (device offline)", this.thingId);
             return;
@@ -499,10 +523,17 @@ export class PandoHoodAccessory {
     // which sends timer.enable:1 + timerValue:0 back to the API — a feedback
     // loop identical to the auto-light bug.
     if (active === 1 && timerWasOff) {
+      this.suppressAutoTimer = true;
       setTimeout(async () => {
-        // Re-check: only suppress if timer is still supposed to be off
-        // (user may have intentionally enabled the timer in the meantime).
-        if (!this.state["device.timer.enable"]) {
+        // Only suppress if the flag is still set — it gets cleared if the
+        // user explicitly turns the timer ON via HomeKit before this fires.
+        if (this.suppressAutoTimer) {
+          // NOTE: Do NOT clear suppressAutoTimer here. The firmware will
+          // re-assert timer.enable: 1 on subsequent polls for as long as
+          // the fan runs. The flag stays active for the entire fan session
+          // and is checked in getTimerOn() to filter firmware state from
+          // HomeKit. It is cleared when: (a) user explicitly enables timer,
+          // or (b) fan is turned off.
           if (!this.online) {
             this.platform.log.warn("[%s] Skipping auto-timer suppression (device offline)", this.thingId);
             return;
@@ -561,6 +592,11 @@ export class PandoHoodAccessory {
   private async setLightOn(value: CharacteristicValue): Promise<void> {
     const on = value ? 1 : 0;
     this.platform.log.info("[%s] Set light on: %d", this.thingId, on);
+    // If the user explicitly turns the light on, cancel any pending
+    // auto-light suppression — they want the light on.
+    if (on) {
+      this.suppressAutoLight = false;
+    }
     this.state["device.lightOnOff"] = on;
     this.debouncer.enqueue({ "device.lightOnOff": on });
   }
@@ -629,6 +665,14 @@ export class PandoHoodAccessory {
   // ---- Timer handlers (Switch) --------------------------------------------
 
   private getTimerOn(): CharacteristicValue {
+    // When auto-timer suppression is active (fan was turned on with timer off),
+    // always report OFF to HomeKit. The firmware automatically sets
+    // timer.enable: 1 when the fan runs, and re-asserts it on every poll —
+    // a one-shot API command can't keep up. Instead, we filter it here so
+    // HomeKit never sees the firmware's auto-timer during a suppressed session.
+    if (this.suppressAutoTimer) {
+      return false;
+    }
     // Only check "enable" — "active" is a firmware status flag that the hood
     // sets automatically when the fan turns on, causing a false-positive.
     const enabled = this.state["device.timer.enable"] ?? 0;
@@ -640,6 +684,8 @@ export class PandoHoodAccessory {
     this.platform.log.info("[%s] Set timer: %s", this.thingId, on ? "ON" : "OFF");
 
     if (on) {
+      // User explicitly enabled the timer — cancel any pending auto-suppression.
+      this.suppressAutoTimer = false;
       // When enabling, also send the duration to ensure the hood has a value.
       // Use || (not ??) so that 0 also falls back to the default — the cloud
       // API may report timerValue: 0 after a firmware-initiated timer state.

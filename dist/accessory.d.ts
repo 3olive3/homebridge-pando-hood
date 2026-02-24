@@ -34,6 +34,8 @@ export declare class PandoHoodAccessory {
     private lastFanSpeed;
     private readonly debouncer;
     private commandCooldownUntil;
+    private suppressAutoLight;
+    private suppressAutoTimer;
     private online;
     constructor(platform: PandoPlatform, accessory: PlatformAccessory, thing: PgaThing);
     updateState(thing: PgaThing): void;
