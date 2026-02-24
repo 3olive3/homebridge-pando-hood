@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.0] - 2026-02-24
+
+### Fixed
+- Clear stale `device.timer.enable` state on fan-off to prevent spurious HomeKit `setTimerActive(OFF)` calls
+- Use intent flags (`suppressAutoLight`, `suppressAutoTimer`) for auto-light/timer suppression instead of one-shot booleans, preventing firmware re-assertion of stale values
+
+### Changed
+- Version bump to 1.2.0 — all firmware auto-behavior quirks now fully handled
+
 ## [1.1.9] - 2026-02-24
 
 ### Fixed

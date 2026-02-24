@@ -11,8 +11,9 @@ This plugin replicates **all** Pando app functionality in HomeKit:
 | **Fan** | Fan v2 | On/off, 4 speed levels (25% steps) |
 | **Light** | Lightbulb | On/off, brightness (10-100%), color temperature (2700-6000K) |
 | **Filter** | Filter Maintenance | Filter life percentage, change needed alert |
-| **Clean Air** | Switch | Toggle periodic ventilation mode |
-| **Timer** | Switch | Toggle hood timer |
+| **Clean Air** | AirPurifier | Toggle periodic ventilation mode |
+| **Timer** | Switch | Toggle hood auto-off timer |
+| **Offline Detection** | StatusFault | Marks accessory as faulted when device stops responding |
 
 All hoods linked to your Pando account are discovered automatically.
 
@@ -86,6 +87,16 @@ The hood has 4 discrete speed levels. HomeKit maps these to percentages:
 ### Color Temperature
 
 The hood light supports color temperatures from 2700K (warm white) to 6000K (cool daylight). HomeKit displays this as the standard warm-to-cool color temperature slider.
+
+### Firmware Quirks & Auto-Behavior
+
+The Pando hood firmware has several auto-behaviors that the plugin works around:
+
+- **Auto-light on fan start**: When the fan turns on, the firmware automatically enables the light. The plugin suppresses this by immediately sending a light-off command after fan-on (if the light was off before).
+- **Auto-timer on fan start**: Similarly, the firmware auto-enables the timer when the fan turns on. The plugin suppresses this with an intent flag that stays active for the entire fan session.
+- **Stale cloud state**: The PGA IoT cloud API can persist stale `timer.enable: 1` values even after the fan turns off. The plugin clears this locally on fan-off to prevent HomeKit from seeing a phantom state change.
+
+These workarounds are transparent to the user — the hood behaves as expected in HomeKit.
 
 ## Supported Models
 
