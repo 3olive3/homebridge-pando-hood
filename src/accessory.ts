@@ -206,6 +206,7 @@ export class PandoHoodAccessory {
 
     this.cleanAirService.getCharacteristic(Characteristic.TargetAirPurifierState)
       .setProps({ validValues: [1] })  // Only "Auto" mode — Clean Air is always automatic
+      .updateValue(1)                  // Set initial value to Auto before any cache reads
       .onGet(() => 1)                  // Always return Auto
       .onSet(() => {});                // No-op — can't change mode
 
@@ -389,7 +390,8 @@ export class PandoHoodAccessory {
   }
 
   private getLightBrightness(): CharacteristicValue {
-    return this.state["device.lightBrightness"] ?? 100;
+    // Clamp to minValue 10 — when light is off the hood reports 0.
+    return Math.max(10, this.state["device.lightBrightness"] ?? 100);
   }
 
   private async setLightBrightness(value: CharacteristicValue): Promise<void> {
@@ -403,7 +405,9 @@ export class PandoHoodAccessory {
 
   private getLightColorTemperature(): CharacteristicValue {
     const kelvin = this.state["device.lightColorTemperature"] ?? 2700;
-    return kelvinToMireds(Math.max(2700, Math.min(6000, kelvin)));
+    const clamped = Math.max(2700, Math.min(6000, kelvin));
+    // Clamp mireds to characteristic range (167-370).
+    return Math.max(kelvinToMireds(6000), Math.min(kelvinToMireds(2700), kelvinToMireds(clamped)));
   }
 
   private async setLightColorTemperature(value: CharacteristicValue): Promise<void> {
@@ -468,8 +472,9 @@ export class PandoHoodAccessory {
 
   private getTimerDuration(): CharacteristicValue {
     // Return the configured timer duration, clamped to valid range.
+    // When inactive the hood reports 0 — clamp to TIMER_MIN (minValue).
     const value = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
-    return Math.max(TIMER_MIN, Math.min(TIMER_MAX, value));
+    return Math.max(TIMER_MIN, Math.min(TIMER_MAX, value || DEFAULT_TIMER_DURATION));
   }
 
   private getTimerRemaining(): CharacteristicValue {

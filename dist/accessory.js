@@ -158,6 +158,7 @@ class PandoHoodAccessory {
             .onGet(() => this.getCleanAirCurrentState());
         this.cleanAirService.getCharacteristic(Characteristic.TargetAirPurifierState)
             .setProps({ validValues: [1] }) // Only "Auto" mode — Clean Air is always automatic
+            .updateValue(1) // Set initial value to Auto before any cache reads
             .onGet(() => 1) // Always return Auto
             .onSet(() => { }); // No-op — can't change mode
         // ---- Timer (Valve - Generic) ----------------------------------------
@@ -270,7 +271,8 @@ class PandoHoodAccessory {
         });
     }
     getLightBrightness() {
-        return this.state["device.lightBrightness"] ?? 100;
+        // Clamp to minValue 10 — when light is off the hood reports 0.
+        return Math.max(10, this.state["device.lightBrightness"] ?? 100);
     }
     async setLightBrightness(value) {
         const brightness = Math.max(10, Math.min(100, value));
@@ -282,7 +284,9 @@ class PandoHoodAccessory {
     }
     getLightColorTemperature() {
         const kelvin = this.state["device.lightColorTemperature"] ?? 2700;
-        return kelvinToMireds(Math.max(2700, Math.min(6000, kelvin)));
+        const clamped = Math.max(2700, Math.min(6000, kelvin));
+        // Clamp mireds to characteristic range (167-370).
+        return Math.max(kelvinToMireds(6000), Math.min(kelvinToMireds(2700), kelvinToMireds(clamped)));
     }
     async setLightColorTemperature(value) {
         const mireds = value;
@@ -335,8 +339,9 @@ class PandoHoodAccessory {
     }
     getTimerDuration() {
         // Return the configured timer duration, clamped to valid range.
+        // When inactive the hood reports 0 — clamp to TIMER_MIN (minValue).
         const value = this.state["device.timerValue"] ?? DEFAULT_TIMER_DURATION;
-        return Math.max(TIMER_MIN, Math.min(TIMER_MAX, value));
+        return Math.max(TIMER_MIN, Math.min(TIMER_MAX, value || DEFAULT_TIMER_DURATION));
     }
     getTimerRemaining() {
         // When the timer is active, timerValue holds the remaining seconds.
