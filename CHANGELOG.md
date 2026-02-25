@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.2.1] - 2026-02-25
+
+### Changed
+- Add Pando logo to README for GitHub and npm display
+
 ## [1.2.0] - 2026-02-24
 
 ### Fixed
