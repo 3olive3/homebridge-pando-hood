@@ -1,9 +1,7 @@
-# homebridge-pando-hood — AGENTS.md
+# homebridge-pando-hood — AI Coding Rules & Project Handbook
 
 > **Project handbook for any AI agent working on this codebase.**
 > Read this file before making changes.
->
-> Global guardrails and team config are at `~/.config/opencode/AGENTS.md`.
 
 ---
 
@@ -29,13 +27,6 @@ A TypeScript Homebridge plugin that bridges Pando kitchen hoods (AirLink Wi-Fi) 
 - Not affiliated with Pando or PGA2.0 S.R.L. — independent community project
 - Not infrastructure — it's an npm package deployed via Homebridge UI
 
-### Related Projects
-
-| Project | Repo | Relationship |
-|---------|------|-------------|
-| **Casa Lima (home-docs)** | `github.com/3olive3/home-docs` | Home knowledge base — documents smart home setup |
-| **BLOK Butler** | `github.com/3olive3/blok-butler` | AI platform — includes HomeKit MCP server that can see this plugin's accessories |
-
 ---
 
 ## 1) Architecture
@@ -45,7 +36,7 @@ A TypeScript Homebridge plugin that bridges Pando kitchen hoods (AirLink Wi-Fi) 
 - **Language**: TypeScript (strict mode)
 - **Runtime**: Node.js >= 18
 - **Platform**: Homebridge >= 1.6.0
-- **Build**: `tsc` → `dist/`
+- **Build**: `tsc` -> `dist/`
 - **API**: PGA IoT cloud (`pando.iotpga.it`) — REST + token auth (4-hour expiry, auto-refresh)
 
 ### Source Structure
@@ -103,29 +94,122 @@ The Pando firmware has auto-behaviors that the plugin works around transparently
 
 ---
 
-## 3) Git Branching & Secrets
-
-> Standard develop/main model. Load the `git-workflow` skill for full details.
->
-> All credentials in **Vaultwarden** (`vault.3olive3.com`). Load the `vaultwarden` skill for the full workflow.
-
-- `dist/` is committed (required for npm publish)
-- No secrets in the codebase — Pando credentials are configured by end users in their Homebridge config
-
----
-
-## 4) Agent Working Contract
-
-Before editing:
-
-1. Read this file (`AGENTS.md`) first
-2. Propose plan before implementing
-3. Build with `npm run build` and verify no TypeScript errors
-4. Update this file if architecture or firmware workarounds change
-
-### Key Rules
+## 3) Key Rules
 
 - **Public repo** — no Casa Lima infrastructure details, no secrets, no internal IPs
 - **npm package** — changes to `package.json` version require a changelog entry
 - **Firmware workarounds are fragile** — test thoroughly before modifying `accessory.ts` auto-suppression logic
 - **Cloud API has no documentation** — all endpoints were reverse-engineered from the Pando app
+- `dist/` is committed (required for npm publish)
+- No secrets in the codebase — Pando credentials are configured by end users in their Homebridge config
+
+---
+
+## Casa Lima — Universal Guardrails
+
+> **These rules are non-negotiable across all Casa Lima repositories.**
+
+### Git Branching Discipline
+
+- `main` is production-ready — **never push directly**
+- `develop` is the integration branch
+- Feature work: `feature/*` branches off `develop`
+- Bug fixes: `bugfix/*` branches off `develop`
+- Merge to `develop` via PR, then `develop` to `main` via PR
+- Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`
+
+### Secrets Management
+
+No password, secret, token, API key, or credential may be stored anywhere other than **Vaultwarden** (`vault.3olive3.com`). Never write secrets to code, config files, `.env` files committed to git, logs, comments, or documentation.
+
+- Vaultwarden user: `administrator@3olive3.com`
+- Never ask the user to paste passwords in chat
+- When creating new credentials, generate a strong password and store it in Vaultwarden
+
+### No Destructive Actions Without Explicit User Approval
+
+Never execute destructive operations on UNRAID, Fortigate, Pihole, or any other system without asking the user first and receiving explicit confirmation. This includes: deleting containers, modifying firewall rules, deleting files, reformatting disks, shutting down services. **For all deletions: a backup must be generated and a rollback plan prepared.**
+
+### No Firewall Changes Without Explicit User Approval
+
+Never execute any write, update, or delete operation on the Fortigate firewall without presenting the proposed change and receiving explicit confirmation. This applies to ALL Fortigate write tools — policies, service objects, address objects, DHCP reservations, static routes.
+
+### Prefer MCP Over SSH
+
+When interacting with infrastructure (UNRAID, Pihole, NGINX Proxy Manager, Fortigate, etc.), always prefer the corresponding MCP server. Only fall back to SSH/API when the MCP server is not connected. All fallback credentials are in Vaultwarden.
+
+### Ops Readiness Before Production
+
+Every new service deployed must have monitoring in Uptime Kuma before being production-ready. Requirements: appropriate monitor type, correct status codes, proper naming (`Service Name (Description)`).
+
+### MkDocs Sync After Push to home-docs
+
+After pushing to the `home-docs` repo, trigger the UNRAID sync immediately:
+```bash
+# Via UNRAID MCP run_command:
+/mnt/user/appdata/mkdocs-sync.sh
+```
+
+### Project Journals
+
+For any multi-session project, maintain a project journal at `~/.config/opencode/journal/active/<project-slug>.md`. At session start, check for existing journals and read them. After every local change, update the journal.
+
+---
+
+## Casa Lima — Infrastructure Reference
+
+### Infrastructure Overview
+
+| Component | Details |
+|-----------|---------|
+| **Server** | HP ProLiant DL380 Gen9, 2x Xeon E5-2697 v3, 128GB RAM (UNRAID) |
+| **Firewall** | Fortigate 61F HA cluster + 2x FortiSwitch + 3x FortiAP-231F |
+| **DNS** | Pihole (primary for all VLANs), Cloudflare (external) |
+| **Reverse Proxy** | NGINX Proxy Manager |
+| **Smart Home** | HomeKit via Homebridge + Shelly devices |
+| **Secrets** | Vaultwarden (`vault.3olive3.com`) |
+| **Docs** | MkDocs Material (`docs.3olive3.com`) |
+| **Backups** | Duplicacy to Backblaze B2 |
+| **Media** | Plex + Sonarr + Radarr + SABnzbd + Overseerr |
+| **Monitoring** | Prometheus/Grafana, Uptime Kuma, Tautulli |
+| **Domain** | `3olive3.com` (Cloudflare) |
+
+### MCP Servers (17 total)
+
+All built in `~/Developer/blok-butler/mcp/` and declared per-repo in `opencode.json`.
+
+| Server | Category | Purpose |
+|--------|----------|---------|
+| unraid | Core | Docker, VMs, shares, system management |
+| pihole | Core | DNS management, ad blocking |
+| nginx | Core | Proxy hosts, SSL, redirects |
+| fortigate | Core | Firewall policies, DHCP, routes |
+| homekit | Core | Smart home control via Homebridge |
+| cloudflare | Networking | DNS zones, tunnels, WAF |
+| ipam | Networking | IP address management (NetBox) |
+| iperf3 | Networking | Bandwidth testing |
+| unimus | Networking | Network device config backup |
+| plex | Media | Media server management |
+| tautulli | Media | Plex monitoring and statistics |
+| media-stack | Media | Sonarr/Radarr media automation |
+| overseerr | Media | Media request management |
+| duplicacy | Ops | Backup management |
+| observability | Ops | Prometheus monitoring |
+| uptime-kuma | Ops | Uptime monitoring and alerting |
+| shelly | Ops | Shelly smart device control |
+
+### Repository Map
+
+```
+~/Developer/
+├── Agents-Teams/       # Infrastructure, cross-repo operations
+├── BLOK/               # iOS app (SwiftUI + Vapor)
+├── blok-butler/        # AI home intelligence (Node.js, 17 MCP servers)
+├── home-docs/          # MkDocs knowledge base (docs.3olive3.com)
+├── minecraft-server/   # Minecraft game server on UNRAID
+├── agents-qa/          # QA and testing across all repos
+├── atelier/            # Atelier.ai — visual AI team designer (SwiftUI)
+├── atelier-mcps/       # MCP server distribution catalog
+├── Pando/              # Homebridge plugin for Pando kitchen hoods
+└── IPAM AND DNS/       # DHCP-to-DNS sync pipeline
+```

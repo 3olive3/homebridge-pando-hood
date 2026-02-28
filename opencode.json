@@ -1,0 +1,98 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    "envsitter-guard",
+    "opencode-notify",
+    "opencode-agent-memory@0.1.0"
+  ],
+  "instructions": [
+    "AGENTS.md"
+  ],
+  "mcp": {
+    "unraid": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/unraid/dist/index.js"],
+      "enabled": true
+    },
+    "pihole": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/pihole/dist/index.js"],
+      "enabled": true
+    },
+    "nginx": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/nginx/dist/index.js"],
+      "enabled": true
+    },
+    "fortigate": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/fortigate/dist/index.js"],
+      "enabled": true
+    },
+    "homekit": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/homekit/dist/index.js"],
+      "enabled": true
+    },
+    "cloudflare": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/cloudflare/dist/index.js"],
+      "enabled": true
+    },
+    "ipam": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/ipam/dist/index.js"],
+      "enabled": true
+    },
+    "iperf3": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/iperf3/dist/index.js"],
+      "enabled": true
+    },
+    "media-stack": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/media-stack/dist/index.js"],
+      "enabled": true
+    },
+    "observability": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/observability/dist/index.js"],
+      "enabled": true
+    },
+    "overseerr": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/overseerr/dist/index.js"],
+      "enabled": true
+    },
+    "plex": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/plex/dist/index.js"],
+      "enabled": true
+    },
+    "shelly": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/shelly/dist/index.js"],
+      "enabled": true
+    },
+    "tautulli": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/tautulli/dist/index.js"],
+      "enabled": true
+    },
+    "unimus": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/unimus/dist/index.js"],
+      "enabled": true
+    },
+    "uptime-kuma": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/uptime-kuma/dist/index.js"],
+      "enabled": true
+    },
+    "duplicacy": {
+      "type": "local",
+      "command": ["node", "/Users/filipe.lima/Developer/blok-butler/mcp/duplicacy/dist/index.js"],
+      "enabled": true
+    }
+  }
+}
