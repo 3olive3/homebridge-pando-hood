@@ -64,10 +64,10 @@ Read these skill files for domain expertise when relevant:
 
 | Skill | Path | When to use |
 |-------|------|-------------|
-| Find Bugs | `~/Developer/atelier-skills/skills/find-bugs/SKILL.md` | Debugging firmware quirks |
-| TDD | `~/Developer/atelier-skills/skills/test-driven-development/SKILL.md` | Writing tests |
-| Code Review | `~/Developer/atelier-skills/skills/code-review/SKILL.md` | Reviewing changes |
-| Git Workflow | `~/Developer/atelier-skills/skills/git-workflow/SKILL.md` | Branching, commits |
+| Find Bugs | `~/Developer/atelier-catalog/skills/find-bugs/SKILL.md` | Debugging firmware quirks |
+| TDD | `~/Developer/atelier-catalog/skills/test-driven-development/SKILL.md` | Writing tests |
+| Code Review | `~/Developer/atelier-catalog/skills/code-review/SKILL.md` | Reviewing changes |
+| Git Workflow | `~/Developer/atelier-catalog/skills/git-workflow/SKILL.md` | Branching, commits |
 
 ## Conventions
 

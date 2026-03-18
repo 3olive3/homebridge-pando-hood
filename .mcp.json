@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "unraid": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/Users/filipe.lima/Developer/atelier-butler/mcp/unraid/dist/index.js"],
+      "env": {
+        "DOTENV_PATH": "/Users/filipe.lima/Developer/atelier-butler/mcp/unraid/.env"
+      }
+    },
+    "vaultwarden": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["/Users/filipe.lima/Developer/atelier-butler/mcp/vaultwarden/dist/index.js"],
+      "env": {
+        "DOTENV_PATH": "/Users/filipe.lima/Developer/atelier-butler/mcp/vaultwarden/.env"
+      }
+    }
+  }
+}
