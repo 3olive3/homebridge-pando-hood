@@ -1,75 +1,79 @@
-# CLAUDE.md
+# homebridge-pando-hood
 
-Homebridge plugin for Pando kitchen hoods — bridges to Apple HomeKit via PGA IoT cloud API.
+Homebridge plugin for Pando kitchen hoods (AirLink Wi-Fi) — bridges them into Apple HomeKit. **Public GitHub repo.**
+
+## Purpose
+
+Exposes Pando hood fan control (4 speeds), light (brightness + 2700–6000K color temperature), filter maintenance, clean-air mode, and timer to HomeKit. Talks to the PGA IoT cloud API (`pando.iotpga.it`) — the same backend the official Pando app uses.
+
+## Stack
+
+- TypeScript 5.7
+- Node.js 18–22
+- Homebridge ≥ 1.6.0
+- `tsc` → `dist/`
+- No deps beyond the Homebridge API
+
+## Layout
+
+```
+src/
+  index.ts          # Plugin entry — exports platform class
+  settings.ts       # Constants, log prefix
+  platform.ts       # Discovery, accessory lifecycle
+  accessory.ts      # HomeKit characteristic handlers
+  api-client.ts     # PGA IoT REST client (auth, token refresh, polling)
+dist/               # tsc output (committed for npm install)
+config.schema.json  # Homebridge UI config schema
+package.json
+README.md
+```
 
 ## Commands
 
 ```bash
-# Install dependencies
 npm install
-
-# Build
-npm run build
-
-# Lint
+npm run build              # tsc → dist/
 npm run lint
+npm run watch              # tsc --watch during development
+npm publish                # release to npm (after version bump)
 ```
 
-## Architecture
-
-TypeScript Homebridge plugin. Communicates with PGA IoT cloud API (`pando.iotpga.it`). Token auth with 4-hour expiry + auto-refresh.
-
-```
-src/
-├── index.ts          # Plugin registration
-├── settings.ts       # Constants
-├── platform.ts       # Discovery, accessory lifecycle
-├── accessory.ts      # HomeKit services, state management
-└── api-client.ts     # PGA IoT API client
+Local install for testing against Homebridge:
+```bash
+npm link
+# inside Homebridge container/host:
+npm link homebridge-pando-hood
+# restart Homebridge
 ```
 
-### HomeKit Services
+## Integration
 
-| Feature | Service | Notes |
-|---------|---------|-------|
-| Fan | Fan v2 | 4 speed levels (25% steps) |
-| Light | Lightbulb | Brightness + color temperature |
-| Filter | Filter Maintenance | Life %, change alert |
-| Clean Air | AirPurifier | Periodic ventilation mode |
-| Timer | Switch | Auto-off timer |
-| Offline | StatusFault | Device unreachable detection |
+- **Cloud API**: `pando.iotpga.it` (undocumented, reverse-engineered)
+- **Auth**: user email + password (token auto-refresh every 4 hours)
+- **Runtime**: Homebridge child bridge on UNRAID, device `0E:46:B4:3B:7E:12`
+- **Live URL**: `homebridge.3olive3.com` → 10.1.6.30:8124 (NPM proxy)
+- **Monitoring**: Uptime Kuma monitor #34 (Pando IoT)
 
-### Known Firmware Quirks
+## Recommended skills
 
-1. Auto-light on fan start — plugin suppresses with immediate light-off
-2. Auto-timer on fan start — plugin suppresses with intent flag for entire session
-3. Stale cloud state — plugin clears timer state on fan-off to prevent reconciliation loop
+From `~/Developer/atelier-catalog/skills/`:
+- api-design-principles, test-driven-development, security-review
 
-## Deploy
+## MCPs
 
-1. `npm run build` locally
-2. Push to `main`
-3. Clone on UNRAID, `docker cp dist/` into `homebridge` container
-4. Restart child bridge `0E:46:B4:3B:7E:12` via HomeKit MCP
+See `.mcp.json`. Default-enabled: `homekit` (for testing characteristics against the live Homebridge).
 
-## Key Rules
+## Gotchas
 
-- **Public repo** — no Casa Lima infrastructure details, no internal IPs, no secrets
-- `dist/` is committed (required for npm publish)
-- Firmware workarounds are fragile — test thoroughly before modifying
+- **PUBLIC REPO** — never commit Casa Lima infrastructure references, account credentials, or internal hostnames. README + AGENTS material here should stay generic.
+- Cloud-only — no local LAN control. Internet-dependent. 1–2s latency typical.
+- Firmware quirks need workarounds in the plugin: auto-light suppression, auto-timer behavior, stale cloud state — see `accessory.ts` for the active hacks.
+- PGA IoT API is reverse-engineered. If Pando changes their backend, this breaks; pin to `pando.iotpga.it` only.
+- Token auto-refresh every 4 hours — failure mode triggers re-auth.
+- Only E-297 model fully confirmed; other models marked TBD in README.
 
-## Skills
+## More context
 
-Read these skill files for domain expertise when relevant:
-
-| Skill | Path | When to use |
-|-------|------|-------------|
-| Find Bugs | `~/Developer/atelier-catalog/skills/find-bugs/SKILL.md` | Debugging firmware quirks |
-| TDD | `~/Developer/atelier-catalog/skills/test-driven-development/SKILL.md` | Writing tests |
-| Code Review | `~/Developer/atelier-catalog/skills/code-review/SKILL.md` | Reviewing changes |
-| Git Workflow | `~/Developer/atelier-catalog/skills/git-workflow/SKILL.md` | Branching, commits |
-
-## Conventions
-
-- Conventional commits: `feat:`, `fix:`, `docs:`, `refactor:`, `chore:`, `test:`
-- Git branching: `feature/*` -> `develop` -> `main`
+- home-docs (private): <https://docs.3olive3.com/smart-home/homebridge-plugins/pando-hood/>
+- Disclaimer: README documents that endpoints are reverse-engineered.
