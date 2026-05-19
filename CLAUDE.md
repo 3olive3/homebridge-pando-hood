@@ -55,10 +55,13 @@ npm link homebridge-pando-hood
 - **Live URL**: `homebridge.3olive3.com` → 10.1.6.30:8124 (NPM proxy)
 - **Monitoring**: Uptime Kuma monitor #34 (Pando IoT)
 
-## Recommended skills
+## Skills installed
 
-From `~/Developer/atelier-catalog/skills/`:
-- api-design-principles, test-driven-development, security-review
+Available via the skill tool — symlinked into `.claude/skills/` from `~/Developer/atelier-catalog/skills/`.
+
+**Casa Lima mandatory** (every repo): `vault-access`, `build-image`, `deploy-container`, `incidents-methodology`, `distribute-skill-mcp`, `home-network`, `bash-pro`, `git-advanced-workflows`, `systematic-debugging`, `security-review`.
+
+**This repo also has**: `api-design-principles`, `test-driven-development`.
 
 ## MCPs
 
