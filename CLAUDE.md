@@ -57,7 +57,7 @@ npm link homebridge-pando-hood
 
 ## Skills installed
 
-Available via the skill tool — symlinked into `.claude/skills/` from `~/Developer/atelier-catalog/skills/`.
+Available via the skill tool — symlinked into `.claude/skills/` from `~/Developer/atelier-platform/atelier-catalog/skills/`.
 
 **Casa Lima mandatory** (every repo): `vault-access`, `build-image`, `deploy-container`, `incidents-methodology`, `distribute-skill-mcp`, `home-network`, `bash-pro`, `git-advanced-workflows`, `systematic-debugging`, `security-review`.
 
