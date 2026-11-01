@@ -2,6 +2,9 @@
   <img src="logo.png" alt="Pando" width="300">
 </p>
 
+> [!IMPORTANT]
+> **Moved (2026-10-30).** This plugin now lives in [`3olive3/atelier-homebridge`](https://github.com/3olive3/atelier-homebridge/tree/develop/packages/homebridge-pando-hood), at `packages/homebridge-pando-hood`, imported with its full history. Version 1.2.2 and everything after it are there. This repository is archived and stays at 1.2.1.
+
 # homebridge-pando-hood
 
 Homebridge plugin for [Pando](https://www.pando.es/) kitchen hoods with AirLink Wi-Fi connectivity. Brings your Pando hood into Apple HomeKit with full control over fan, light, filter monitoring, and more.
